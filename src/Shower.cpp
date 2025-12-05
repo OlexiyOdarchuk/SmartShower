@@ -17,6 +17,7 @@ void Shower::run()
 void Shower::updateDisplay()
 {
     showerTimer.setCursor(0);
+
     if (!digitalRead(button) == false)
     {
         isRunning = false;

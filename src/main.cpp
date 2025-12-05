@@ -7,9 +7,10 @@
 #include <bot.h>
 #include <Shower.h>
 #include <logic.h>
+
 // Підключення душів
 Shower shower1(SHOWER_1_TIMER_DIO, SHOWER_1_TIMER_CLK, SHOWER_1_BUTTON, SHOWER_1_TEMPERATURE_BUTTON_1, SHOWER_1_TEMPERATURE_BUTTON_2, SHOWER_1_TEMPERATURE_BUTTON_3, SHOWER_1_TEMPERATURE_BUTTON_4);
-Shower shower2(SHOWER_2_TIMER_DIO, SHOWER_2_TIMER_CLK, SHOWER_2_BUTTON, SHOWER_2_TEMPERATURE_BUTTON_1, SHOWER_2_TEMPERATURE_BUTTON_2, SHOWER_2_TEMPERATURE_BUTTON_3, SHOWER_2_TEMPERATURE_BUTTON_4);
+// Shower shower2(SHOWER_2_TIMER_DIO, SHOWER_2_TIMER_CLK, SHOWER_2_BUTTON, SHOWER_2_TEMPERATURE_BUTTON_1, SHOWER_2_TEMPERATURE_BUTTON_2, SHOWER_2_TEMPERATURE_BUTTON_3, SHOWER_2_TEMPERATURE_BUTTON_4);
 
 void setup()
 {
@@ -35,10 +36,18 @@ void setup()
 
     // Включаю тільки потрібні
     bot.updates.set(fb::Updates::Type::Message | fb::Updates::Type::CallbackQuery);
+
+    // Attach update handler
+    bot.attachUpdate(updateh);
+
+    // Налаштування дисплеїв
+    pinMode(SHOWER_1_TIMER_DIO, OUTPUT);
+    pinMode(SHOWER_1_TIMER_CLK, OUTPUT);
+    pinMode(SHOWER_1_BUTTON, INPUT_PULLUP);
 }
 void loop()
 {
     shower1.run();
-    shower2.run();
+    // shower2.run();
     bot.tick();
 }
