@@ -2,3 +2,7 @@
 #define WIFI_PASS "mySuperPuperParol"
 #define BOT_TOKEN "0123456789:BOTShowERToNKen_CLI"
 #define ADMIN_ID "1433760480"
+#define SHOWER_TIMER_1_CLK 1
+#define SHOWER_TIMER_1_DIO 2
+#define SHOWER_TIMER_2_CLK 3
+#define SHOWER_TIMER_2_DIO 4
