@@ -7,6 +7,6 @@
 
 #define FB_NO_FILE
 
-FastBot2 bot;
+extern FastBot2 bot;
 
 void updateh(fb::Update &u);

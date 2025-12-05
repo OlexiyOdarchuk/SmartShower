@@ -18,6 +18,8 @@ class Shower
 public:
     Shower(u8_t displayDIO, u8_t displayCLK, u8_t button, u8_t temperatureButton1, u8_t temperatureButton2, u8_t temperatureButton3, u8_t temperatureButton4);
 
+    void run();
+
 private:
     ShowerWaterTemperature showerWaterTemperature;
     u8_t button;

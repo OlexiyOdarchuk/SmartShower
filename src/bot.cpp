@@ -5,6 +5,8 @@
 #include <WiFi.h>
 #include <bot.h>
 
+FastBot2 bot(BOT_TOKEN);
+
 void updateh(fb::Update &u)
 {
     Serial.println("New message!");
