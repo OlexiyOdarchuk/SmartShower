@@ -12,7 +12,7 @@
 #define SHOWER_1_TIMER_CLK 2
 #define SHOWER_1_BUTTON 3
 #define SHOWER_1_GROUND 4
-#define SHOWER_2_GREEN_LED 5
+#define SHOWER_1_GREEN_LED 5
 #define SHOWER_1_RED_LED 6
 
 // Душ 2
@@ -33,6 +33,8 @@
 #define QUEUE_BUTTON 17
 #define BLACK_BUTTON 18
 #define BUZZER 19
+#define OLED_SCK 20
+#define OLED_SDA 21
 
 // Робочий час
 #define NIGHT_TIME_START 0
