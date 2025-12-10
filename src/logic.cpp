@@ -1,10 +1,10 @@
 #include <Arduino.h>
-#include <secrets.h>
+#include <secrets.hpp>
 #include <GyverSegment.h>
 #include <FastBot2.h>
 #include <WiFi.h>
-#include <bot.h>
-#include <logic.h>
+#include <bot.hpp>
+#include <logic.hpp>
 #include <NTPClient.h>
 
 WiFiUDP ntpUPD;

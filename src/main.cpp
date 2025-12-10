@@ -1,12 +1,12 @@
 #include <Arduino.h>
-#include <secrets.h>
+#include <secrets.hpp>
 #include <GyverSegment.h>
 #include <FastBot2.h>
 #include <WiFi.h>
 #include <NTPClient.h>
-#include <bot.h>
-#include <Shower.h>
-#include <logic.h>
+#include <bot.hpp>
+#include <Shower.hpp>
+#include <logic.hpp>
 
 // Підключення душів
 // Shower shower1(SHOWER_1_TIMER_DIO, SHOWER_1_TIMER_CLK, SHOWER_1_BUTTON, SHOWER_1_TEMPERATURE_BUTTON_1, SHOWER_1_TEMPERATURE_BUTTON_2, SHOWER_1_TEMPERATURE_BUTTON_3, SHOWER_1_TEMPERATURE_BUTTON_4);
@@ -47,7 +47,5 @@ void setup()
 }
 void loop()
 {
-    shower1.run();
-    // shower2.run();
     bot.tick();
 }

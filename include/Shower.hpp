@@ -1,10 +1,10 @@
 #pragma once
 #include <Arduino.h>
-#include <secrets.h>
+#include <secrets.hpp>
 #include <GyverSegment.h>
 #include <FastBot2.h>
 #include <WiFi.h>
-#include <bot.h>
+#include <bot.hpp>
 
 struct WaterTemperature
 {
@@ -22,8 +22,8 @@ public:
     Shower(u8_t displayDIO, u8_t displayCLK, u8_t button, u8_t temperatureGround);
     Shower(u8_t displayDIO, u8_t displayCLK, u8_t button, u8_t temperatureGround, u8_t temperatureButton1, u8_t temperatureButton2, u8_t temperatureButton3, u8_t temperatureButton4);
 
-    void run();
     String getWaterTemperature();
+    void updateDisplay();
 
 private:
     WaterTemperature waterTemperature;
@@ -34,6 +34,5 @@ private:
     bool isRunning = false;
     Disp1637Colon showerTimer;
 
-    void updateDisplay();
     void setWaterTemperature();
 };

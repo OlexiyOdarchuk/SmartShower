@@ -1,6 +1,6 @@
 #pragma once
 #include <Arduino.h>
-#include <secrets.h>
+#include <secrets.hpp>
 #include <GyverSegment.h>
 #include <FastBot2.h>
 #include <WiFi.h>

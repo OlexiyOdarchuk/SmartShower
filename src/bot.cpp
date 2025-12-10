@@ -1,21 +1,28 @@
 #include <Arduino.h>
-#include <secrets.h>
+#include <secrets.hpp>
 #include <GyverSegment.h>
 #include <FastBot2.h>
 #include <WiFi.h>
-#include <bot.h>
-#include <logic.h>
+#include <bot.hpp>
+#include <logic.hpp>
 
 FastBot2 bot(BOT_TOKEN);
 
 void updateh(fb::Update &u)
 {
-    Serial.println("New message!");
-
-    if (u.message().text() == "/start")
+    if (u.message().chat().id() == GROUP_ID)
     {
-        fb::Message msg("Hello!", u.message().chat().id());
-        bot.sendMessage(msg, true);
+        u8_t hour = static_cast<u8_t>(timeClient.getHours());
+        if ((hour > NIGHT_TIME_START && hour < NIGHT_TIME_FINISH) || (hour > MIDDAY_TIME_START && hour < MIDDAY_TIME_FINISH))
+        {
+            Serial.println("New message!");
+
+            if (u.message().text() == "/start")
+            {
+                fb::Message msg("Hello!", u.message().chat().id());
+                bot.sendMessage(msg, true);
+            }
+        }
     }
 }
 

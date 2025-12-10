@@ -1,8 +1,11 @@
 #pragma once
+
+// Мережеві налаштування
 #define WIFI_SSID "MyWifi"
 #define WIFI_PASS "mySuperPuperParol"
 #define BOT_TOKEN "0123456789:BOTShowERToNKen_CLI"
 #define ADMIN_ID "1433760480"
+#define GROUP_ID "-100161234841"
 
 // Душ 1
 #define SHOWER_1_TIMER_DIO 1
@@ -26,6 +29,13 @@
 #define SHOWER_TEMPERATURE_BUTTON_3 15
 #define SHOWER_TEMPERATURE_BUTTON_4 16
 
+// Загальні піни
 #define QUEUE_BUTTON 17
 #define BLACK_BUTTON 18
 #define BUZZER 19
+
+// Робочий час
+#define NIGHT_TIME_START 0
+#define NIGHT_TIME_FINISH 6
+#define MIDDAY_TIME_START 11
+#define MIDDAY_TIME_FINISH 14
