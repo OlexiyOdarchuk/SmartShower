@@ -5,7 +5,7 @@
 #include <FastBot2.h>
 #include <WiFi.h>
 #include <bot.hpp>
-
+#include <CircularBuffer.hpp>
 struct WaterTemperature
 {
     uint8_t temperature;
@@ -20,21 +20,20 @@ class Shower
 {
 public:
     Shower(u8_t displayDIO, u8_t displayCLK, u8_t button, u8_t temperatureGround, u8_t redLed, u8_t greenLed);
-    Shower(u8_t displayDIO, u8_t displayCLK, u8_t button, u8_t temperatureGround, u8_t redLed, u8_t greenLed, u8_t temperatureButton1, u8_t temperatureButton2, u8_t temperatureButton3, u8_t temperatureButton4);
 
     String getWaterTemperature();
     void updateDisplay();
+    void getTemperatureButtons(u8_t buttons[4]);
+    u8_t getTemperatureGround();
+    void setWaterTemperature(CircularBuffer<String, 30> &queue);
 
 private:
     WaterTemperature waterTemperature;
     u8_t button;
     u8_t redLed;
     u8_t greenLed;
-    u8_t temperatureButtons[4] = {SHOWER_TEMPERATURE_BUTTON_1, SHOWER_TEMPERATURE_BUTTON_2, SHOWER_TEMPERATURE_BUTTON_3, SHOWER_TEMPERATURE_BUTTON_4};
     u8_t temperatureGround;
     ulong start = 0;
     bool isRunning = false;
     Disp1637Colon showerTimer;
-
-    void setWaterTemperature();
 };

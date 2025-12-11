@@ -35,11 +35,6 @@ void setup()
 
     // Attach update handler
     bot.attachUpdate(updateh);
-
-    // Налаштування дисплеїв
-    pinMode(SHOWER_1_TIMER_DIO, OUTPUT);
-    pinMode(SHOWER_1_TIMER_CLK, OUTPUT);
-    pinMode(SHOWER_1_BUTTON, INPUT_PULLUP);
 }
 void loop()
 {
