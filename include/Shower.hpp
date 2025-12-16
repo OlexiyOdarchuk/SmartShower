@@ -26,6 +26,7 @@ public:
     u8_t getTemperatureGround();
     void setWaterTemperature(const CircularBuffer<String, 30> &queue, const u8_t temperature);
     void setWhoNow(const String &id);
+    void ledControl();
 
 private:
     WaterTemperature waterTemperature;

@@ -20,6 +20,20 @@ Shower::Shower(u8_t displayDIO, u8_t displayCLK, u8_t button, u8_t temperatureGr
     waterTemperature.time = "";
 };
 
+void Shower::ledControl()
+{
+    if (isBusy)
+    {
+        digitalWrite(redLed, HIGH);
+        digitalWrite(greenLed, LOW);
+    }
+    else
+    {
+        digitalWrite(redLed, LOW);
+        digitalWrite(greenLed, HIGH);
+    }
+}
+
 u8_t Shower::getTemperatureGround()
 {
     return temperatureGround;
@@ -51,6 +65,7 @@ bool Shower::getChange()
     else
     {
         isBusy = digitalRead(button);
+        ledControl();
         return true;
     }
 }
