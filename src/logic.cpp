@@ -11,26 +11,3 @@ WiFiUDP ntpUPD;
 NTPClient timeClient(ntpUPD, "0.ua.pool.ntp.org", 2 * 3600, 60000);
 Shower shower1(SHOWER_1_TIMER_DIO, SHOWER_1_TIMER_CLK, SHOWER_1_BUTTON, SHOWER_1_GROUND, SHOWER_1_RED_LED, SHOWER_1_GREEN_LED);
 Shower shower2(SHOWER_2_TIMER_DIO, SHOWER_2_TIMER_CLK, SHOWER_2_BUTTON, SHOWER_2_GROUND, SHOWER_2_RED_LED, SHOWER_2_GREEN_LED);
-
-// void loop()
-// {
-//     for (int r = 0; r < 2; r++)
-//     {
-
-//         digitalWrite(rows[r], LOW);
-
-//         for (int c = 0; c < 4; c++)
-//         {
-//             if (digitalRead(cols[c]) == LOW)
-//             {
-//                 Serial.print("Pressed: R");
-//                 Serial.print(r);
-//                 Serial.print(" C");
-//                 Serial.println(c);
-//                 delay(200);
-//             }
-//         }
-
-//         digitalWrite(rows[r], HIGH);
-//     }
-// }

@@ -39,4 +39,9 @@ void setup()
 void loop()
 {
     bot.tick();
+    timeClient.update();
+    shower1.updateDisplay();
+    shower2.updateDisplay();
 }
+
+// TODO: Не забути подобавляти бузер на всі ті взаємодії!!!

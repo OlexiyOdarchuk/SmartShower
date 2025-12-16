@@ -10,8 +10,7 @@ struct WaterTemperature
 {
     uint8_t temperature;
     String user;
-    String time; // getFormattedTime вертає стрінг, але думаю з тим ще буде час побавитися
-    // ulong time; // Можна записувати його просто як millis() і тоді буде видно скільки часу назад було оцінено
+    String time;
 
     String getInfo();
 };
@@ -23,17 +22,22 @@ public:
 
     String getWaterTemperature();
     void updateDisplay();
-    void getTemperatureButtons(u8_t buttons[4]);
+    void getTemperatureButtons(const u8_t buttons[4]);
     u8_t getTemperatureGround();
-    void setWaterTemperature(CircularBuffer<String, 30> &queue);
+    void setWaterTemperature(const CircularBuffer<String, 30> &queue, const u8_t temperature);
+    void setWhoNow(const String &id);
 
 private:
     WaterTemperature waterTemperature;
-    u8_t button;
-    u8_t redLed;
-    u8_t greenLed;
-    u8_t temperatureGround;
+    const u8_t button;
+    const u8_t redLed;
+    const u8_t greenLed;
+    const u8_t temperatureGround;
     ulong start = 0;
-    bool isRunning = false;
+    bool getChange();
+    bool isBusy = false;
+    bool oldIsBusy = false;
+    bool isChange = false;
     Disp1637Colon showerTimer;
+    String whoNow;
 };

@@ -18,8 +18,8 @@ private:
     FastBot2 bot;
     Shower shower1;
     Shower shower2;
-    u8_t temperatureButtons[4];
     u8_t temperatureGrounds[2];
+    const u8_t temperatureButtons[4];
     void addingToQueue(String &id);
     void queueReduction(Shower &shower);
     void pressShowerButton(Shower &shower);

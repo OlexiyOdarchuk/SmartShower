@@ -34,15 +34,16 @@ void SmartShower::updateTemperatureButtons()
 
         for (int c = 0; c < 4; c++)
         {
+            // INPUT_PULLUP: button pressed = LOW, not pressed = HIGH
             if (digitalRead(temperatureButtons[c]) == LOW)
             {
                 if (r == 0)
                 {
-                    shower1.setWaterTemperature(queue);
+                    shower1.setWaterTemperature(queue, c + 1);
                 }
                 if (r == 1)
                 {
-                    shower2.setWaterTemperature(queue);
+                    shower2.setWaterTemperature(queue, c + 1);
                 }
             }
         }
@@ -63,7 +64,8 @@ void SmartShower::queueReduction(Shower &shower)
 {
     if (!queue.isEmpty()) // ! Винести це перед викликом!!!
     {
-        String element = queue.shift();
+        // String id = queue.shift();
+        shower.setWhoNow(queue.shift());
         if (queue.first() != "0")
         {
             fb::Message msg;

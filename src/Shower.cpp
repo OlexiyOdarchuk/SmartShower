@@ -4,6 +4,7 @@
 #include <FastBot2.h>
 #include <WiFi.h>
 #include <bot.hpp>
+#include <logic.hpp>
 #include <Shower.hpp>
 
 Shower::Shower(u8_t displayDIO, u8_t displayCLK, u8_t button, u8_t temperatureGround, u8_t redLed, u8_t greenLed)
@@ -12,6 +13,11 @@ Shower::Shower(u8_t displayDIO, u8_t displayCLK, u8_t button, u8_t temperatureGr
     pinMode(displayDIO, OUTPUT);
     pinMode(displayCLK, OUTPUT);
     pinMode(button, INPUT_PULLUP);
+    pinMode(redLed, OUTPUT);
+    pinMode(greenLed, OUTPUT);
+    waterTemperature.temperature = 0;
+    waterTemperature.user = "";
+    waterTemperature.time = "";
 };
 
 u8_t Shower::getTemperatureGround()
@@ -24,8 +30,11 @@ String WaterTemperature::getInfo()
     return ""; // TODO: Написати сюда текст
 }
 
-void Shower::setWaterTemperature(CircularBuffer<String, 30> &queue)
+void Shower::setWaterTemperature(const CircularBuffer<String, 30> &queue, u8_t const temperature)
 {
+    waterTemperature.temperature = temperature;
+    waterTemperature.time = timeClient.getFormattedTime();
+    waterTemperature.user = whoNow;
 }
 
 String Shower::getWaterTemperature()
@@ -33,21 +42,34 @@ String Shower::getWaterTemperature()
     return waterTemperature.getInfo();
 }
 
+bool Shower::getChange()
+{
+    if (isBusy == digitalRead(button))
+    {
+        return false;
+    }
+    else
+    {
+        isBusy = digitalRead(button);
+        return true;
+    }
+}
+
 void Shower::updateDisplay()
 {
+    isChange = getChange();
     showerTimer.setCursor(0);
-    if (!digitalRead(button) == false)
+    if (isChange && !isBusy)
     {
-        isRunning = false;
         showerTimer.print("FREE");
         showerTimer.update();
         return;
     }
-    if (!digitalRead(button) != isRunning)
+    if (isBusy && isChange)
     {
-        isRunning = true;
         start = millis();
     }
+
     unsigned long totalMs = millis() - start;
 
     u8_t minutes = (totalMs / (1000 * 60)) % 60;
@@ -61,3 +83,12 @@ void Shower::updateDisplay()
     showerTimer.colon(true);
     showerTimer.update();
 };
+
+void Shower::setWhoNow(const String &id)
+{
+    whoNow = id;
+}
+
+void Shower::getTemperatureButtons(const u8_t buttons[4])
+{
+}
