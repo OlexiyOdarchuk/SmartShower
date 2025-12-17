@@ -7,12 +7,14 @@
 #include <Shower.hpp>
 #include <SmartShower.hpp>
 #include <CircularBuffer.hpp>
+#include <GyverOLED.h>
+#include <logic.hpp>
 
-SmartShower::SmartShower(FastBot2 &bot, Shower &shower1, Shower &shower2, u8_t temperatureButton1, u8_t temperatureButton2, u8_t temperatureButton3, u8_t temperatureButton4) : bot(bot), shower1(shower1), shower2(shower2), temperatureButtons({temperatureButton1, temperatureButton2, temperatureButton3, temperatureButton4})
+SmartShower::SmartShower(FastBot2 &botRef, Shower &shower1Ref, Shower &shower2Ref, GyverOLED<SSD1306_128x32, OLED_NO_BUFFER> &oledRef, u8_t temperatureButton1, u8_t temperatureButton2, u8_t temperatureButton3, u8_t temperatureButton4) : bot(botRef), shower1(shower1Ref), shower2(shower2Ref), oled(oledRef), temperatureButtons{temperatureButton1, temperatureButton2, temperatureButton3, temperatureButton4}
 {
     temperatureGrounds[0] = shower1.getTemperatureGround();
     temperatureGrounds[1] = shower2.getTemperatureGround();
-
+    oled.init();
     for (int r = 0; r < 2; r++)
     {
         pinMode(temperatureGrounds[r], OUTPUT);
@@ -34,7 +36,6 @@ void SmartShower::updateTemperatureButtons()
 
         for (int c = 0; c < 4; c++)
         {
-            // INPUT_PULLUP: button pressed = LOW, not pressed = HIGH
             if (digitalRead(temperatureButtons[c]) == LOW)
             {
                 if (r == 0)
@@ -52,31 +53,84 @@ void SmartShower::updateTemperatureButtons()
     }
 }
 
-void SmartShower::addingToQueue(String &id)
+bool SmartShower::addingToQueue(const String &id)
 {
     if (!queue.isFull())
     {
         queue.push(id);
+        return true;
     }
+    return false;
 }
 
-void SmartShower::queueReduction(Shower &shower)
+void SmartShower::queueReductionByIndex(const int8_t index)
 {
-    if (!queue.isEmpty()) // ! Винести це перед викликом!!!
+    int size = queue.size();
+    if (index < 0 || index >= size)
+        return;
+
+    String temp[size];
+
+    for (int i = 0; i < size; i++)
     {
-        // String id = queue.shift();
-        shower.setWhoNow(queue.shift());
-        if (queue.first() != "0")
+        temp[i] = queue.shift();
+    }
+
+    for (int i = 0; i < size; i++)
+    {
+        if (i != index)
         {
-            fb::Message msg;
-            msg.text = "" + queue.first();
-            bot.sendMessage(msg);
-            // TODO: Перенести на форматування і написати нормальний текст
+            queue.push(temp[i]);
         }
     }
+}
+void SmartShower::queueReduction(const String &id)
+{
+    queueReductionByIndex(isInQueue(id));
 }
 
 void SmartShower::pressShowerButton(Shower &shower)
 {
-    queueReduction(shower);
+    if (!queue.isEmpty()) // ! Винести це перед викликом!!!
+    {
+        shower.setWhoNow(queue.shift());
+        queueReductionMessage(GROUP_ID);
+    }
+}
+
+void SmartShower::queueDisplay()
+{
+    // TODO: написати обробку для дій oled
+}
+
+String SmartShower::getFirstId()
+{
+    if (!queue.isEmpty())
+        return queue.first();
+    return "-1";
+}
+
+void SmartShower::pressQueueButton()
+{
+    if (!queue.isFull())
+    {
+        queue.push("0");
+    }
+    // TODO: Отут бузер ще має бути
+}
+
+int8_t SmartShower::isInQueue(const String &id)
+{
+    for (u8_t i = 0; i < queue.size(); i++)
+    {
+        if (queue[i] == id)
+            return i;
+    }
+    return -1;
+}
+
+void SmartShower::run()
+{
+    updateTemperatureButtons();
+    // TODO: Написати фукнцію для роботи, яка вже буде обробляти всі натискання
 }

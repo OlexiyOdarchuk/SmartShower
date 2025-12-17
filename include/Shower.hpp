@@ -1,11 +1,8 @@
 #pragma once
 #include <Arduino.h>
-#include <secrets.hpp>
-#include <GyverSegment.h>
-#include <FastBot2.h>
-#include <WiFi.h>
-#include <bot.hpp>
 #include <CircularBuffer.hpp>
+#include <GyverSegment.h>
+
 struct WaterTemperature
 {
     uint8_t temperature;
@@ -22,7 +19,6 @@ public:
 
     String getWaterTemperature();
     void updateDisplay();
-    void getTemperatureButtons(const u8_t buttons[4]);
     u8_t getTemperatureGround();
     void setWaterTemperature(const CircularBuffer<String, 30> &queue, const u8_t temperature);
     void setWhoNow(const String &id);
@@ -37,7 +33,6 @@ private:
     ulong start = 0;
     bool getChange();
     bool isBusy = false;
-    bool oldIsBusy = false;
     bool isChange = false;
     Disp1637Colon showerTimer;
     String whoNow;

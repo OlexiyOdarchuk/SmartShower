@@ -103,7 +103,3 @@ void Shower::setWhoNow(const String &id)
 {
     whoNow = id;
 }
-
-void Shower::getTemperatureButtons(const u8_t buttons[4])
-{
-}
