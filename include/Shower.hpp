@@ -20,9 +20,11 @@ public:
     String getWaterTemperature();
     void updateDisplay();
     u8_t getTemperatureGround();
-    void setWaterTemperature(const CircularBuffer<String, 30> &queue, const u8_t temperature);
+    void setWaterTemperature(const u8_t temperature);
     void setWhoNow(const String &id);
     void ledControl();
+    bool isBusyNow();
+    String getWhoNow();
 
 private:
     WaterTemperature waterTemperature;

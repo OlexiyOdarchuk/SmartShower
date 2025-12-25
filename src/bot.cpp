@@ -12,26 +12,34 @@ void updateh(fb::Update &u)
 {
     if (u.message().chat().id() == GROUP_ID)
     {
-        u8_t hour = static_cast<u8_t>(timeClient.getHours());
-        if ((hour > NIGHT_TIME_START && hour < NIGHT_TIME_FINISH) || (hour > MIDDAY_TIME_START && hour < MIDDAY_TIME_FINISH))
+        if (u.message().text() == "/start")
         {
-            if (u.message().text() == "/start")
-            {
-                fb::Message msg("Hello!", GROUP_ID);
-                bot.sendMessage(msg, true);
-            }
-            if (u.message().text() == "/get_info")
-            {
-                getInfoMessage(u.message().id(), u.message().chat().id());
-            }
-            if (u.message().text() == "/joid_to_queue")
+            fb::Message msg("👋 Привіт! Це бот для управління чергою в душ Гуртожитку №1.\n\nДоступні команди:\n/get_info - інформація про душеві кабіни\n/joid_to_queue - додатися в чергу\n/leave_from_queue - вийти з черги", GROUP_ID);
+            bot.sendMessage(msg, true);
+        }
+        if (u.message().text() == "/get_info")
+        {
+            getInfoMessage(u.message().id(), u.message().chat().id());
+        }
+        if (u.message().text() == "/joid_to_queue" || u.message().text() == "/join_to_queue")
+        {
+            // Перевірка робочого часу
+            if (smartShower.isWorkingTime())
             {
                 addToQueueMessage(u.message().from().id(), u.message().id(), u.message().chat().id());
             }
-            if (u.message().text() == "/leave_from_queue")
+            else
             {
-                queueReductionMessage(u.message().from().id(), u.message().id(), u.message().chat().id());
+                fb::Message msg;
+                msg.chatID = u.message().chat().id();
+                msg.reply = createReply(u.message().id(), u.message().chat().id());
+                msg.text = "❌ Зараз не робочий час. Робочий час визначається налаштуваннями системи.";
+                bot.sendMessage(msg, true);
             }
+        }
+        if (u.message().text() == "/leave_from_queue")
+        {
+            queueReductionMessage(u.message().from().id(), u.message().id(), u.message().chat().id());
         }
     }
 }
@@ -50,7 +58,9 @@ void getInfoMessage(const int32_t messageID, const fb::ID chatID)
     String wt2 = shower2.getWaterTemperature();
     fb::Message msg;
     msg.reply = createReply(messageID, chatID);
-    msg.text = ""; // TODO: Написати сюди повідомлення з інформацією
+    msg.text = "📊 Інформація про душеві кабіни:\n\n";
+    msg.text += "🚿 Душ 1:\n" + wt1 + "\n\n";
+    msg.text += "🚿 Душ 2:\n" + wt2;
     bot.sendMessage(msg, true);
 }
 
@@ -61,7 +71,7 @@ void queueReductionMessage(const fb::ID chatID)
     {
         fb::Message msg;
         msg.mode = fb::Message::Mode::MarkdownV2;
-        msg.text = "Привіт, [користувачу](tg://user?id=" + first + ")"; // TODO: написати текст, що готовий душ
+        msg.text = "🔔 Твоя черга наступна\\! [Користувач](tg://user?id=" + first + ")";
         msg.chatID = chatID;
         bot.sendMessage(msg, true);
     }
@@ -75,12 +85,12 @@ void queueReductionMessage(const String &id, const int32_t messageID, const fb::
     int8_t indexInQueue = smartShower.isInQueue(id);
     if (indexInQueue == -1)
     {
-        msg.text = ""; // TODO: Написати повідомлення, що вас немає в списку;
+        msg.text = "❌ Вас немає в черзі";
         bot.sendMessage(msg, true);
         return;
     }
     smartShower.queueReduction(id);
-    msg.text = ""; // TODO: Написати повідомлення про успішне вилучення з черги
+    msg.text = "✅ Ви успішно вийшли з черги";
     bot.sendMessage(msg, true);
 
     queueReductionMessage(chatID);
@@ -91,12 +101,23 @@ void addToQueueMessage(const String &id, const int32_t messageID, const fb::ID c
     fb::Message msg;
     msg.chatID = chatID;
     msg.reply = createReply(messageID, chatID);
-    if (smartShower.addingToQueue(id))
+    
+    // Перевірка, чи користувач вже в черзі
+    int8_t position = smartShower.isInQueue(id);
+    if (position != -1)
     {
-        msg.text = ""; // TODO: Дописати текст на успішне додавання в чергу
+        msg.text = "⚠️ Ви вже в черзі! Ваша позиція: " + String(position + 1);
         bot.sendMessage(msg, true);
         return;
     }
-    msg.text = ""; // TODO: Дописати текст на неуспішне додавання в чергу
+    
+    if (smartShower.addingToQueue(id))
+    {
+        position = smartShower.isInQueue(id) + 1;
+        msg.text = "✅ Ви додані в чергу! Ваша позиція: " + String(position);
+        bot.sendMessage(msg, true);
+        return;
+    }
+    msg.text = "❌ Черга заповнена, спробуйте пізніше";
     bot.sendMessage(msg, true);
 }

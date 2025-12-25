@@ -41,10 +41,24 @@ u8_t Shower::getTemperatureGround()
 
 String WaterTemperature::getInfo()
 {
-    return ""; // TODO: Написати сюда текст
+    if (temperature == 0)
+    {
+        return "Температура не встановлена";
+    }
+    String info = "Температура: " + String(temperature) + "\n";
+    info += "Час: " + time + "\n";
+    if (user == "0" || user == "")
+    {
+        info += "Користувач: Зареєстровано кнопкою";
+    }
+    else
+    {
+        info += "Користувач: " + user;
+    }
+    return info;
 }
 
-void Shower::setWaterTemperature(const CircularBuffer<String, 30> &queue, u8_t const temperature)
+void Shower::setWaterTemperature(const u8_t temperature)
 {
     waterTemperature.temperature = temperature;
     waterTemperature.time = timeClient.getFormattedTime();
@@ -58,15 +72,18 @@ String Shower::getWaterTemperature()
 
 bool Shower::getChange()
 {
-    if (isBusy == digitalRead(button))
+    // Для INPUT_PULLUP: LOW = натиснуто (зайнятий), HIGH = відпущено (вільний)
+    bool buttonPressed = (digitalRead(button) == LOW);
+    
+    if (isBusy == buttonPressed)
     {
-        return false;
+        return false; // Стан не змінився
     }
     else
     {
-        isBusy = digitalRead(button);
+        isBusy = buttonPressed;
         ledControl();
-        return true;
+        return true; // Стан змінився
     }
 }
 
@@ -102,4 +119,14 @@ void Shower::updateDisplay()
 void Shower::setWhoNow(const String &id)
 {
     whoNow = id;
+}
+
+bool Shower::isBusyNow()
+{
+    return isBusy;
+}
+
+String Shower::getWhoNow()
+{
+    return whoNow;
 }

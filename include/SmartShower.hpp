@@ -14,6 +14,7 @@ public:
     void queueReduction(const String &id);
     int8_t isInQueue(const String &id);
     bool addingToQueue(const String &id);
+    bool isWorkingTime();
 
 private:
     CircularBuffer<String, 30> queue;
@@ -23,9 +24,24 @@ private:
     GyverOLED<SSD1306_128x32, OLED_NO_BUFFER> &oled;
     u8_t temperatureGrounds[2];
     const u8_t temperatureButtons[4];
+    bool lastShower1State = false;
+    bool lastShower2State = false;
+    bool lastQueueButtonState = false;
+    ulong lastOledUpdate = 0;
+    ulong lastAnimationUpdate = 0;
+    ulong errorDisplayStart = 0;
+    ulong lastQueueButtonPress = 0;
+    ulong lastTemperatureButtonPress[2][4] = {{0}}; // Debounce для кнопок температури
+    String errorMessage = "";
+    int animationOffset = 0;
     void queueDisplay();
-    void pressShowerButton(Shower &shower);
     void pressQueueButton();
     void updateTemperatureButtons();
     void queueReductionByIndex(const int8_t index);
+    void handleShowerButton(Shower &shower, bool currentState, bool &lastState);
+    void handleQueueButton();
+    void buzzerBeep(bool isError = false);
+    void showErrorOnOled(const String &error);
+    void showNonWorkingTimeAnimation();
+    void clearQueueIfNonWorkingTime();
 };

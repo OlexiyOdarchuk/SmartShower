@@ -36,8 +36,8 @@
 #define OLED_SCK 20
 #define OLED_SDA 21
 
-// Робочий час
+// Робочий час (ставити фініш -1, щоб можна було чергу раніше займати)
 #define NIGHT_TIME_START 0
-#define NIGHT_TIME_FINISH 6
+#define NIGHT_TIME_FINISH 5 // взагалі 6, але 6-1 = 5
 #define MIDDAY_TIME_START 11
-#define MIDDAY_TIME_FINISH 14
+#define MIDDAY_TIME_FINISH 13

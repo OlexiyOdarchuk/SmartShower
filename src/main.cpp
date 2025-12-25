@@ -38,10 +38,6 @@ void setup()
 }
 void loop()
 {
-    bot.tick();
-    timeClient.update();
-    shower1.updateDisplay();
-    shower2.updateDisplay();
+    bot.tick(); // Обробка повідомлень від Telegram бота
+    smartShower.run();
 }
-
-// TODO: Не забути подобавляти бузер на всі ті взаємодії!!!
