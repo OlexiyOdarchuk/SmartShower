@@ -9,7 +9,10 @@ extern FastBot2 bot;
 
 void updateh(fb::Update &u);
 void getInfoMessage(const int32_t messageID, const fb::ID chatID = GROUP_ID);
-void addToQueueMessage(const String &id, const int32_t messageID, const fb::ID chatID = GROUP_ID);
+void addToQueueMessage(const String &id, const String &name, const int32_t messageID, const fb::ID chatID = GROUP_ID);
 void queueReductionMessage(const String &id, const int32_t messageID, const fb::ID chatID = GROUP_ID);
-void queueReductionMessage(const fb::ID chatID = GROUP_ID);
+void notifyNextInQueue(const fb::ID chatID = GROUP_ID);
+void showQueueMessage(const int32_t messageID, const fb::ID chatID = GROUP_ID);
+void showPositionMessage(const String &id, const int32_t messageID, const fb::ID chatID = GROUP_ID);
+void clearQueueMessage(const String &requester, const int32_t messageID, const fb::ID chatID = GROUP_ID);
 fb::ReplyParam createReply(const int32_t messageID, const fb::ID chatID = GROUP_ID);

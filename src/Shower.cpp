@@ -1,132 +1,112 @@
 #include <Arduino.h>
 #include <secrets.hpp>
-#include <GyverSegment.h>
-#include <FastBot2.h>
-#include <WiFi.h>
-#include <bot.hpp>
-#include <logic.hpp>
 #include <Shower.hpp>
+#include <logic.hpp>
 
-Shower::Shower(u8_t displayDIO, u8_t displayCLK, u8_t button, u8_t temperatureGround, u8_t redLed, u8_t greenLed)
-    : showerTimer(displayDIO, displayCLK), button(button), temperatureGround(temperatureGround), redLed(redLed), greenLed(greenLed)
+Shower::Shower(uint8_t id,
+               uint8_t displayDIO, uint8_t displayCLK,
+               uint8_t button,
+               uint8_t tempBtn1, uint8_t tempBtn2, uint8_t tempBtn3, uint8_t tempBtn4,
+               uint8_t redLed, uint8_t greenLed)
+    : id(id),
+      button(button),
+      redLed(redLed),
+      greenLed(greenLed),
+      tempBtn1(tempBtn1), tempBtn2(tempBtn2), tempBtn3(tempBtn3), tempBtn4(tempBtn4),
+      showerTimer(displayDIO, displayCLK)
 {
-    pinMode(displayDIO, OUTPUT);
-    pinMode(displayCLK, OUTPUT);
+}
+
+void Shower::init()
+{
     pinMode(button, INPUT_PULLUP);
     pinMode(redLed, OUTPUT);
     pinMode(greenLed, OUTPUT);
-    waterTemperature.temperature = 0;
-    waterTemperature.user = "";
-    waterTemperature.time = "";
-};
+    pinMode(tempBtn1, INPUT_PULLUP);
+    pinMode(tempBtn2, INPUT_PULLUP);
+    pinMode(tempBtn3, INPUT_PULLUP);
+    pinMode(tempBtn4, INPUT_PULLUP);
 
-void Shower::ledControl()
-{
-    if (isBusy)
-    {
-        digitalWrite(redLed, HIGH);
-        digitalWrite(greenLed, LOW);
-    }
-    else
-    {
-        digitalWrite(redLed, LOW);
-        digitalWrite(greenLed, HIGH);
-    }
+    // Початковий стан LED — за поточним станом кнопки
+    isBusy = (digitalRead(button) == LOW);
+    applyLed();
+
+    showerTimer.brightness(7);
+    showerTimer.clear();
+    showerTimer.print("FREE");
+    showerTimer.update();
+    Serial.printf("[Shower %u] init OK, busy=%d\n", id, isBusy);
 }
 
-u8_t Shower::getTemperatureGround()
+void Shower::applyLed() const
 {
-    return temperatureGround;
+    digitalWrite(redLed,   isBusy ? HIGH : LOW);
+    digitalWrite(greenLed, isBusy ? LOW  : HIGH);
 }
 
-String WaterTemperature::getInfo()
+bool Shower::pollButton()
 {
-    if (temperature == 0)
-    {
-        return "Температура не встановлена";
-    }
-    String info = "Температура: " + String(temperature) + "\n";
-    info += "Час: " + time + "\n";
-    if (user == "0" || user == "")
-    {
-        info += "Користувач: Зареєстровано кнопкою";
-    }
-    else
-    {
-        info += "Користувач: " + user;
-    }
-    return info;
-}
-
-void Shower::setWaterTemperature(const u8_t temperature)
-{
-    waterTemperature.temperature = temperature;
-    waterTemperature.time = timeClient.getFormattedTime();
-    waterTemperature.user = whoNow;
-}
-
-String Shower::getWaterTemperature()
-{
-    return waterTemperature.getInfo();
-}
-
-bool Shower::getChange()
-{
-    // Для INPUT_PULLUP: LOW = натиснуто (зайнятий), HIGH = відпущено (вільний)
-    bool buttonPressed = (digitalRead(button) == LOW);
-    
-    if (isBusy == buttonPressed)
-    {
-        return false; // Стан не змінився
-    }
-    else
-    {
-        isBusy = buttonPressed;
-        ledControl();
-        return true; // Стан змінився
-    }
+    bool nowBusy = (digitalRead(button) == LOW);
+    if (nowBusy == isBusy) return false;
+    isBusy = nowBusy;
+    Serial.printf("[Shower %u] state -> %s\n", id, isBusy ? "BUSY" : "FREE");
+    applyLed();
+    return true;
 }
 
 void Shower::updateDisplay()
 {
-    isChange = getChange();
+    bool justChanged = pollButton();
     showerTimer.setCursor(0);
-    if (isChange && !isBusy)
+
+    if (!isBusy)
     {
         showerTimer.print("FREE");
         showerTimer.update();
         return;
     }
-    if (isBusy && isChange)
+
+    if (justChanged)
     {
-        start = millis();
+        timerStart = millis();
+        Serial.printf("[Shower %u] timer started\n", id);
     }
 
-    unsigned long totalMs = millis() - start;
+    ulong elapsed = millis() - timerStart;
+    uint8_t minutes = (elapsed / 60000UL) % 60;
+    uint8_t seconds = (elapsed / 1000UL) % 60;
 
-    u8_t minutes = (totalMs / (1000 * 60)) % 60;
-    u8_t seconds = (totalMs / 1000) % 60;
-
-    char timeBuffer[6];
-
-    sprintf(timeBuffer, "%02d%02d", minutes, seconds);
-
-    showerTimer.print(timeBuffer);
+    char buf[6];
+    snprintf(buf, sizeof(buf), "%02u%02u", minutes, seconds);
+    showerTimer.print(buf);
     showerTimer.colon(true);
     showerTimer.update();
-};
-
-void Shower::setWhoNow(const String &id)
-{
-    whoNow = id;
 }
 
-bool Shower::isBusyNow()
+String WaterTemperature::getInfo() const
 {
-    return isBusy;
+    if (temperature == 0) return "Температура не встановлена";
+    String info;
+    info.reserve(64);
+    info  = "Температура: " + String(temperature) + "\n";
+    info += "Час: " + time + "\n";
+    info += (user == "0" || user.length() == 0)
+            ? "Користувач: Зареєстровано кнопкою"
+            : "Користувач: " + user;
+    return info;
 }
 
-String Shower::getWhoNow()
+void Shower::setWaterTemperature(uint8_t temperature)
 {
-    return whoNow;
+    waterTemperature.temperature = temperature;
+    waterTemperature.time = timeClient.getFormattedTime();
+    waterTemperature.user = whoNow;
+    Serial.printf("[Shower %u] T=%u user=%s at %s\n",
+                  id, temperature, whoNow.c_str(), waterTemperature.time.c_str());
 }
+
+String Shower::getWaterTemperature() const     { return waterTemperature.getInfo(); }
+void   Shower::setWhoNow(const String &id_)    { whoNow = id_; }
+String Shower::getWhoNow() const               { return whoNow; }
+void   Shower::clearWhoNow()                   { whoNow = ""; }
+bool   Shower::isBusyNow() const               { return isBusy; }

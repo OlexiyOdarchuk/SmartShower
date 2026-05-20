@@ -8,36 +8,37 @@
 #define GROUP_ID "-100161234841"
 
 // Душ 1
-#define SHOWER_1_TIMER_DIO 1
-#define SHOWER_1_TIMER_CLK 2
-#define SHOWER_1_BUTTON 3
-#define SHOWER_1_GROUND 4
-#define SHOWER_1_GREEN_LED 5
-#define SHOWER_1_RED_LED 6
+#define SHOWER_1_TIMER_DIO 26
+#define SHOWER_1_TIMER_CLK 14
+#define SHOWER_1_BUTTON 23
+#define SHOWER_1_TEMPERATURE_BUTTON_1 15
+#define SHOWER_1_TEMPERATURE_BUTTON_2 2
+#define SHOWER_1_TEMPERATURE_BUTTON_3 13
+#define SHOWER_1_TEMPERATURE_BUTTON_4 12
+#define SHOWER_1_GREEN_LED 17
+#define SHOWER_1_RED_LED 19
 
 // Душ 2
-#define SHOWER_2_TIMER_DIO 7
-#define SHOWER_2_TIMER_CLK 8
-#define SHOWER_2_BUTTON 9
-#define SHOWER_2_GROUND 10
-#define SHOWER_2_GREEN_LED 11
-#define SHOWER_2_RED_LED 12
-
-// Кнопки для клавіатури (Вони зроблені як матриця, тобто 4 спільні піни і 2 різні землі)
-#define SHOWER_TEMPERATURE_BUTTON_1 13
-#define SHOWER_TEMPERATURE_BUTTON_2 14
-#define SHOWER_TEMPERATURE_BUTTON_3 15
-#define SHOWER_TEMPERATURE_BUTTON_4 16
+// УВАГА: піни 34, 35 на ESP32 — input-only без внутрішньої підтяжки.
+// Потрібні зовнішні pull-up резистори (10k до 3.3V).
+#define SHOWER_2_TIMER_DIO 27
+#define SHOWER_2_TIMER_CLK 14
+#define SHOWER_2_BUTTON 4
+#define SHOWER_2_TEMPERATURE_BUTTON_1 35
+#define SHOWER_2_TEMPERATURE_BUTTON_2 34
+#define SHOWER_2_TEMPERATURE_BUTTON_3 33
+#define SHOWER_2_TEMPERATURE_BUTTON_4 32
+#define SHOWER_2_GREEN_LED 5
+#define SHOWER_2_RED_LED 18
 
 // Загальні піни
-#define QUEUE_BUTTON 17
-#define BLACK_BUTTON 18
-#define BUZZER 19
-#define OLED_SCK 20
+#define QUEUE_BUTTON 16
+#define BUZZER 25
+#define OLED_SCK 22
 #define OLED_SDA 21
 
-// Робочий час (ставити фініш -1, щоб можна було чергу раніше займати)
+// Не робочий час (включно: finish — це остання неробоча година)
 #define NIGHT_TIME_START 0
-#define NIGHT_TIME_FINISH 5 // взагалі 6, але 6-1 = 5
+#define NIGHT_TIME_FINISH (6-1)
 #define MIDDAY_TIME_START 11
-#define MIDDAY_TIME_FINISH 13
+#define MIDDAY_TIME_FINISH (14-1)

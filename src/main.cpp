@@ -6,11 +6,31 @@
 #include <NTPClient.h>
 #include <bot.hpp>
 #include <Shower.hpp>
+#include <SmartShower.hpp>
 #include <logic.hpp>
+
+static TaskHandle_t botTaskHandle = nullptr;
+
+static void botTaskFn(void *)
+{
+    for (;;)
+    {
+        bot.tick();
+        // Якщо фізична кнопка прийняла наступного з черги, треба сповістити нового першого.
+        if (smartShower.pendingNotifyNext)
+        {
+            smartShower.pendingNotifyNext = false;
+            notifyNextInQueue(GROUP_ID);
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+}
 
 void setup()
 {
     Serial.begin(115200);
+    smartShower.init();
+
     // Підключення до інтернету
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     while (WiFi.status() != WL_CONNECTED)
@@ -26,18 +46,26 @@ void setup()
 
     // Налаштування бота
     bot.setPollMode(fb::Poll::Long, 60000);
-
-    // Виключити всі оновлення
     bot.updates.clearAll();
-
-    // Включаю тільки потрібні
     bot.updates.set(fb::Updates::Type::Message | fb::Updates::Type::CallbackQuery);
-
-    // Attach update handler
     bot.attachUpdate(updateh);
+
+    // Бот живе на ядрі 0 (PRO_CPU), щоб блокуючі HTTP-запити не зачіпали
+    // фізичну логіку, яка виконується на ядрі 1 (loop()).
+    xTaskCreatePinnedToCore(
+        botTaskFn,
+        "botTask",
+        16384,         // стек: TLS handshake + JSON-парсинг, потрібно багато
+        nullptr,
+        1,             // пріоритет
+        &botTaskHandle,
+        0              // PRO_CPU
+    );
+    Serial.println("[main] Bot task pinned to core 0");
 }
+
 void loop()
 {
-    bot.tick(); // Обробка повідомлень від Telegram бота
     smartShower.run();
+    delay(1); // віддати трохи часу планувальнику
 }
