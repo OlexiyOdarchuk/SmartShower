@@ -1,33 +1,27 @@
 #include <Arduino.h>
 #include <secrets.hpp>
 #include <Shower.hpp>
+#include <timeutil.hpp>
 #include <logic.hpp>
 
 Shower::Shower(uint8_t id,
                uint8_t displayDIO, uint8_t displayCLK,
                uint8_t button,
-               uint8_t tempBtn1, uint8_t tempBtn2, uint8_t tempBtn3, uint8_t tempBtn4,
                uint8_t redLed, uint8_t greenLed)
     : id(id),
       button(button),
       redLed(redLed),
       greenLed(greenLed),
-      tempBtn1(tempBtn1), tempBtn2(tempBtn2), tempBtn3(tempBtn3), tempBtn4(tempBtn4),
       showerTimer(displayDIO, displayCLK)
 {
 }
 
 void Shower::init()
 {
-    pinMode(button, INPUT_PULLUP);
-    pinMode(redLed, OUTPUT);
+    pinMode(button,   INPUT_PULLUP);
+    pinMode(redLed,   OUTPUT);
     pinMode(greenLed, OUTPUT);
-    pinMode(tempBtn1, INPUT_PULLUP);
-    pinMode(tempBtn2, INPUT_PULLUP);
-    pinMode(tempBtn3, INPUT_PULLUP);
-    pinMode(tempBtn4, INPUT_PULLUP);
 
-    // Початковий стан LED — за поточним станом кнопки
     isBusy = (digitalRead(button) == LOW);
     applyLed();
 
@@ -35,6 +29,8 @@ void Shower::init()
     showerTimer.clear();
     showerTimer.print("FREE");
     showerTimer.update();
+    lastDisplayBuf[0] = 'F'; lastDisplayBuf[1] = 'R'; lastDisplayBuf[2] = 'E';
+    lastDisplayBuf[3] = 'E'; lastDisplayBuf[4] = 0;
     Serial.printf("[Shower %u] init OK, busy=%d\n", id, isBusy);
 }
 
@@ -57,12 +53,16 @@ bool Shower::pollButton()
 void Shower::updateDisplay()
 {
     bool justChanged = pollButton();
-    showerTimer.setCursor(0);
 
     if (!isBusy)
     {
-        showerTimer.print("FREE");
-        showerTimer.update();
+        if (justChanged || strcmp(lastDisplayBuf, "FREE") != 0)
+        {
+            showerTimer.setCursor(0);
+            showerTimer.print("FREE");
+            showerTimer.update();
+            strncpy(lastDisplayBuf, "FREE", sizeof(lastDisplayBuf));
+        }
         return;
     }
 
@@ -78,9 +78,16 @@ void Shower::updateDisplay()
 
     char buf[6];
     snprintf(buf, sizeof(buf), "%02u%02u", minutes, seconds);
-    showerTimer.print(buf);
-    showerTimer.colon(true);
-    showerTimer.update();
+
+    // Оновлюємо TM1637 (bit-bang, ~10 мс) тільки коли текст справді змінився.
+    if (strcmp(buf, lastDisplayBuf) != 0)
+    {
+        showerTimer.setCursor(0);
+        showerTimer.print(buf);
+        showerTimer.colon(true);
+        showerTimer.update();
+        strncpy(lastDisplayBuf, buf, sizeof(lastDisplayBuf));
+    }
 }
 
 String WaterTemperature::getInfo() const
@@ -99,7 +106,7 @@ String WaterTemperature::getInfo() const
 void Shower::setWaterTemperature(uint8_t temperature)
 {
     waterTemperature.temperature = temperature;
-    waterTemperature.time = timeClient.getFormattedTime();
+    waterTemperature.time = timeutil::formatted();
     waterTemperature.user = whoNow;
     Serial.printf("[Shower %u] T=%u user=%s at %s\n",
                   id, temperature, whoNow.c_str(), waterTemperature.time.c_str());

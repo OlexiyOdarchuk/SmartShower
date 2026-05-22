@@ -17,7 +17,6 @@ public:
     Shower(uint8_t id,
            uint8_t displayDIO, uint8_t displayCLK,
            uint8_t button,
-           uint8_t tempBtn1, uint8_t tempBtn2, uint8_t tempBtn3, uint8_t tempBtn4,
            uint8_t redLed, uint8_t greenLed);
 
     void init();
@@ -34,16 +33,13 @@ private:
     const uint8_t button;
     const uint8_t redLed;
     const uint8_t greenLed;
-    const uint8_t tempBtn1;
-    const uint8_t tempBtn2;
-    const uint8_t tempBtn3;
-    const uint8_t tempBtn4;
     Disp1637Colon showerTimer;
     WaterTemperature waterTemperature;
     String whoNow;
     ulong timerStart = 0;
     bool isBusy = false;
+    char lastDisplayBuf[6] = "";
 
-    bool pollButton();  // повертає true, якщо стан змінився
+    bool pollButton();
     void applyLed() const;
 };

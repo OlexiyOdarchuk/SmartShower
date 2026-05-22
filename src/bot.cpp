@@ -9,7 +9,6 @@ FastBot2 bot(BOT_TOKEN);
 
 namespace {
 
-// Дістаємо «гарне» імʼя: @username → first_name → "User <id>"
 String pickDisplayName(fb::UserRead user)
 {
     String uname = user.username().toString();
@@ -37,6 +36,14 @@ fb::Message makeReply(const String &body, int32_t messageID, const fb::ID &chatI
     return msg;
 }
 
+void send(const fb::Message &msg)
+{
+    if (!bot.sendMessage(const_cast<fb::Message &>(msg), true))
+    {
+        Serial.println("[Bot] sendMessage failed");
+    }
+}
+
 } // namespace
 
 void updateh(fb::Update &u)
@@ -59,7 +66,7 @@ void updateh(fb::Update &u)
                         "/leave_from_queue — вийти з черги\n"
                         "/clear_queue — очистити чергу (тільки адмін)",
                         chatID);
-        bot.sendMessage(msg, true);
+        send(msg);
     }
     else if (isCommand(text, "/get_info"))
     {
@@ -75,11 +82,6 @@ void updateh(fb::Update &u)
     }
     else if (isCommand(text, "/join_to_queue"))
     {
-        if (!smartShower.isWorkingTime())
-        {
-            bot.sendMessage(makeReply("❌ Зараз не робочий час.", msgId, chatID), true);
-            return;
-        }
         addToQueueMessage(fromId, pickDisplayName(u.message().from()), msgId, chatID);
     }
     else if (isCommand(text, "/leave_from_queue"))
@@ -108,7 +110,7 @@ void getInfoMessage(const int32_t messageID, const fb::ID chatID)
     body += "🚿 Душ 1:\n" + shower1.getWaterTemperature() + "\n\n";
     body += "🚿 Душ 2:\n" + shower2.getWaterTemperature() + "\n\n";
     body += "Черга: " + String(smartShower.queueLen());
-    bot.sendMessage(makeReply(body, messageID, chatID), true);
+    send(makeReply(body, messageID, chatID));
 }
 
 void notifyNextInQueue(const fb::ID chatID)
@@ -119,66 +121,67 @@ void notifyNextInQueue(const fb::ID chatID)
     msg.mode = fb::Message::Mode::MarkdownV2;
     msg.text = "🔔 Твоя черга наступна\\! [" + head.displayName + "](tg://user?id=" + head.id + ")";
     msg.chatID = chatID;
-    bot.sendMessage(msg, true);
+    send(msg);
 }
 
 void queueReductionMessage(const String &id, const int32_t messageID, const fb::ID chatID)
 {
-    int8_t indexInQueue = smartShower.isInQueue(id);
-    if (indexInQueue == -1)
+    bool wasFirst = false;
+    if (!smartShower.leaveQueue(id, wasFirst))
     {
         smartShower.requestBeep(true);
-        bot.sendMessage(makeReply("❌ Вас немає в черзі.", messageID, chatID), true);
+        send(makeReply("❌ Вас немає в черзі.", messageID, chatID));
         return;
     }
-    bool wasFirst = (indexInQueue == 0);
-    smartShower.queueReduction(id);
     smartShower.requestBeep(false);
-    bot.sendMessage(makeReply("✅ Ви успішно вийшли з черги.", messageID, chatID), true);
+    send(makeReply("✅ Ви успішно вийшли з черги.", messageID, chatID));
     if (wasFirst) notifyNextInQueue(chatID);
 }
 
 void addToQueueMessage(const String &id, const String &name,
                        const int32_t messageID, const fb::ID chatID)
 {
-    int8_t position = smartShower.isInQueue(id);
-    if (position != -1)
+    JoinResult r = smartShower.tryJoin(id, name);
+    switch (r.status)
     {
+    case JoinResult::OFF_HOURS:
         smartShower.requestBeep(true);
-        String text = "⚠️ Ви вже в черзі! Ваша позиція: " + String(position + 1);
-        bot.sendMessage(makeReply(text, messageID, chatID), true);
+        send(makeReply("❌ Зараз не робочий час.", messageID, chatID));
+        return;
+    case JoinResult::ALREADY_IN:
+        smartShower.requestBeep(true);
+        send(makeReply("⚠️ Ви вже в черзі! Ваша позиція: " + String(r.position), messageID, chatID));
+        return;
+    case JoinResult::FULL:
+        smartShower.requestBeep(true);
+        send(makeReply("❌ Черга заповнена, спробуйте пізніше.", messageID, chatID));
+        return;
+    case JoinResult::ADDED:
+        smartShower.requestBeep(false);
+        send(makeReply("✅ " + name + ", ви додані в чергу! Ваша позиція: " + String(r.position),
+                       messageID, chatID));
         return;
     }
-    if (!smartShower.addingToQueue(id, name))
-    {
-        smartShower.requestBeep(true);
-        bot.sendMessage(makeReply("❌ Черга заповнена, спробуйте пізніше.", messageID, chatID), true);
-        return;
-    }
-    smartShower.requestBeep(false);
-    int8_t newPos = smartShower.isInQueue(id) + 1;
-    String text = "✅ " + name + ", ви додані в чергу! Ваша позиція: " + String(newPos);
-    bot.sendMessage(makeReply(text, messageID, chatID), true);
 }
 
 void showQueueMessage(const int32_t messageID, const fb::ID chatID)
 {
-    uint8_t len = smartShower.queueLen();
-    if (len == 0)
+    QueueEntry entries[30];
+    uint8_t count = smartShower.snapshotQueue(entries, 30);
+    if (count == 0)
     {
-        bot.sendMessage(makeReply("📭 Черга порожня.", messageID, chatID), true);
+        send(makeReply("📭 Черга порожня.", messageID, chatID));
         return;
     }
 
     String body;
-    body.reserve(32 + len * 24);
-    body = "📋 Черга (" + String(len) + "):\n";
-    for (uint8_t i = 0; i < len; i++)
+    body.reserve(32 + count * 24);
+    body = "📋 Черга (" + String(count) + "):\n";
+    for (uint8_t i = 0; i < count; i++)
     {
-        QueueEntry entry = smartShower.getQueueAt(i);
-        body += String(i + 1) + ". " + entry.displayName() + "\n";
+        body += String(i + 1) + ". " + entries[i].displayName() + "\n";
     }
-    bot.sendMessage(makeReply(body, messageID, chatID), true);
+    send(makeReply(body, messageID, chatID));
 }
 
 void showPositionMessage(const String &id, const int32_t messageID, const fb::ID chatID)
@@ -187,7 +190,7 @@ void showPositionMessage(const String &id, const int32_t messageID, const fb::ID
     String text = (pos == -1)
         ? String("ℹ️ Вас немає в черзі. /join_to_queue щоб додатися.")
         : ("📍 Ваша позиція: " + String(pos + 1) + " із " + String(smartShower.queueLen()));
-    bot.sendMessage(makeReply(text, messageID, chatID), true);
+    send(makeReply(text, messageID, chatID));
 }
 
 void clearQueueMessage(const String &requester, const int32_t messageID, const fb::ID chatID)
@@ -195,10 +198,10 @@ void clearQueueMessage(const String &requester, const int32_t messageID, const f
     if (requester != String(ADMIN_ID))
     {
         smartShower.requestBeep(true);
-        bot.sendMessage(makeReply("🚫 Ця команда доступна тільки адміну.", messageID, chatID), true);
+        send(makeReply("🚫 Ця команда доступна тільки адміну.", messageID, chatID));
         return;
     }
     smartShower.clearQueue();
     smartShower.requestBeep(false);
-    bot.sendMessage(makeReply("🧹 Чергу очищено.", messageID, chatID), true);
+    send(makeReply("🧹 Чергу очищено.", messageID, chatID));
 }

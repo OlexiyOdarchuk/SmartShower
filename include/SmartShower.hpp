@@ -4,6 +4,7 @@
 #include <GyverOLED.h>
 #include <CircularBuffer.hpp>
 #include <Ticker.h>
+#include <Preferences.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <Shower.hpp>
@@ -11,7 +12,7 @@
 struct QueueEntry
 {
     String id;
-    String name; // username / first_name / "" для "Кнопка"
+    String name;
 
     String displayName() const
     {
@@ -21,12 +22,19 @@ struct QueueEntry
     }
 };
 
-// Атомарний знімок першого елемента черги — щоб бот не робив два окремі locked-виклики
+// Атомарний знімок першого елемента черги.
 struct QueueHead
 {
     String id;
     String displayName;
     bool isEmpty;
+};
+
+// Результат спроби додатися в чергу.
+struct JoinResult
+{
+    enum Status { ADDED, ALREADY_IN, FULL, OFF_HOURS } status;
+    int position; // 1-based, актуально тільки для ADDED і ALREADY_IN
 };
 
 struct TempButtonState
@@ -48,19 +56,19 @@ public:
     void run();
 
     // — інтерфейс для бота —
-    bool      addingToQueue(const String &id, const String &name = "");
-    void      queueReduction(const String &id);
-    int8_t    isInQueue(const String &id);
-    QueueEntry getQueueAt(uint8_t index);
-    QueueHead  getHead();              // атомарний знімок першого
-    uint8_t   queueLen();
-    void      clearQueue();
-    bool      isWorkingTime();          // кешоване значення
+    JoinResult tryJoin(const String &id, const String &name);
+    bool       leaveQueue(const String &id, bool &wasFirstOut);
+    int8_t     isInQueue(const String &id);
+    uint8_t    snapshotQueue(QueueEntry *out, uint8_t maxOut);
+    QueueHead  getHead();
+    uint8_t    queueLen();
+    void       clearQueue();
+    bool       isWorkingTime();
 
     // Прапор для бот-задачі: «настав час сповістити наступного».
     volatile bool pendingNotifyNext = false;
 
-    // Прохання пікнути з боку бот-задачі. Виконається на core 1 у run().
+    // Прохання пікнути з боку бот-задачі.
     void requestBeep(bool isError);
 
 private:
@@ -74,6 +82,9 @@ private:
     CircularBuffer<QueueEntry, 30> queue;
     SemaphoreHandle_t queueMutex = nullptr;
 
+    // — NVS —
+    Preferences prefs;
+
     // — кеш working-time —
     bool  workingTimeCached = true;
     ulong workingTimeUpdatedAt = 0;
@@ -86,6 +97,10 @@ private:
     bool lastShower2Busy        = false;
     ulong lastQueueButtonPress  = 0;
     TempButtonState tempBtn[2][4];
+
+    // — авто-вибуття першого з черги —
+    String firstNotifyId;
+    ulong  firstNotifyAt = 0;
 
     // — стан OLED —
     String lastOledRender;
@@ -117,4 +132,8 @@ private:
     void showErrorOnOled(const String &error);
     void showNonWorkingTimeAnimation();
     void clearQueueIfNonWorkingTime();
+    void persistQueueUnlocked();
+    void restoreQueueOnBoot();
+    void runAutoRemoveTick();
+    void armFirstNotify(const QueueHead &head);
 };

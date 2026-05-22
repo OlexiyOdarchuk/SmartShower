@@ -3,23 +3,31 @@
 #include <FastBot2.h>
 #include <WiFi.h>
 #include <Ticker.h>
+#include <Preferences.h>
 #include <bot.hpp>
 #include <Shower.hpp>
 #include <SmartShower.hpp>
 #include <CircularBuffer.hpp>
 #include <GyverOLED.h>
 #include <logic.hpp>
-#include <NTPClient.h>
+#include <timeutil.hpp>
 
-// — константи —
 namespace {
-constexpr uint16_t TEMP_DEBOUNCE_MS   = 30;
-constexpr uint16_t TEMP_REFIRE_MS     = 300;
+constexpr uint16_t TEMP_DEBOUNCE_MS    = 30;
+constexpr uint16_t TEMP_REFIRE_MS      = 300;
 constexpr uint16_t QUEUE_BTN_REFIRE_MS = 2000;
-constexpr uint16_t ERROR_DISPLAY_MS   = 2000;
-constexpr uint16_t OLED_REFRESH_MS    = 500;
-constexpr uint16_t ANIM_FRAME_MS      = 100;
-constexpr uint32_t WORKING_TIME_TTL_MS = 1000; // як часто перепитуємо NTP
+constexpr uint16_t ERROR_DISPLAY_MS    = 2000;
+constexpr uint16_t OLED_REFRESH_MS     = 500;
+constexpr uint16_t ANIM_FRAME_MS       = 100;
+constexpr uint32_t WORKING_TIME_TTL_MS = 1000;
+constexpr uint32_t AUTO_REMOVE_MS      = 5UL * 60UL * 1000UL; // 5 хв на «з'явитися в душі»
+
+// Роздільники для серіалізації черги в NVS (Unit Separator / Record Separator,
+// гарантовано не зустрічаються в username/first_name).
+constexpr char FIELD_SEP_CH  = '\x1F';
+constexpr char RECORD_SEP_CH = '\x1E';
+constexpr const char *NVS_NAMESPACE = "ss";
+constexpr const char *NVS_QUEUE_KEY = "queue";
 
 constexpr int TEMP_PINS[2][4] = {
     {SHOWER_1_TEMPERATURE_BUTTON_1, SHOWER_1_TEMPERATURE_BUTTON_2,
@@ -27,6 +35,8 @@ constexpr int TEMP_PINS[2][4] = {
     {SHOWER_2_TEMPERATURE_BUTTON_1, SHOWER_2_TEMPERATURE_BUTTON_2,
      SHOWER_2_TEMPERATURE_BUTTON_3, SHOWER_2_TEMPERATURE_BUTTON_4},
 };
+
+constexpr bool isBadTempPin(int pin) { return pin == 2 || pin == 34 || pin == 35; }
 
 void buzzerOffCallback() { noTone(BUZZER); }
 
@@ -56,10 +66,15 @@ void SmartShower::init()
 {
     Serial.println("--- SmartShower init ---");
     queueMutex = xSemaphoreCreateMutex();
+    prefs.begin(NVS_NAMESPACE, false); // RW
 
     pinMode(BUZZER, OUTPUT);
     digitalWrite(BUZZER, LOW);
-    // Не викликаємо noTone() — LEDC канал ще не створено.
+
+    // Прокидаємо LEDC канал заздалегідь, щоб перший noTone() не лаявся.
+    tone(BUZZER, 1, 1);
+    delay(2);
+    noTone(BUZZER);
 
     shower1.init();
     shower2.init();
@@ -70,23 +85,35 @@ void SmartShower::init()
     pinMode(SHOWER_1_BUTTON, INPUT_PULLUP);
     pinMode(SHOWER_2_BUTTON, INPUT_PULLUP);
 
-    // Дамо підтяжкам час встановитися (RC settling).
-    delay(10);
-
-    // Діагностика: показуємо стартові стани темп-кнопок.
+    // PinMode для робочих темп-пінів. Зламані просто пропускаємо.
     for (uint8_t s = 0; s < 2; s++)
     {
         for (uint8_t c = 0; c < 4; c++)
         {
-            int raw = digitalRead(TEMP_PINS[s][c]);
-            Serial.printf("[Init] S%u T%u pin=%d -> %s\n",
-                          s + 1, c + 1, TEMP_PINS[s][c],
-                          raw == HIGH ? "HIGH (idle)" : "LOW (stuck/pressed)");
+            int p = TEMP_PINS[s][c];
+            if (!isBadTempPin(p)) pinMode(p, INPUT_PULLUP);
         }
     }
-    // Усі поля TempButtonState уже false/0 за замовчанням; явно не seed-имо —
-    // інакше «застряглі LOW» піни сприймаються як уже-натиснуті і не дають
-    // реальним натисканням фронту.
+
+    delay(10); // дамо підтяжкам встановитися
+
+    // Діагностика темп-пінів при старті.
+    for (uint8_t s = 0; s < 2; s++)
+    {
+        for (uint8_t c = 0; c < 4; c++)
+        {
+            int p = TEMP_PINS[s][c];
+            if (isBadTempPin(p))
+            {
+                Serial.printf("[Init] S%u T%u pin=%d -> DISABLED\n", s + 1, c + 1, p);
+                continue;
+            }
+            int raw = digitalRead(p);
+            Serial.printf("[Init] S%u T%u pin=%d -> %s\n",
+                          s + 1, c + 1, p,
+                          raw == HIGH ? "HIGH (idle)" : "LOW (pressed?)");
+        }
+    }
 
     lastShower1ButtonState = (digitalRead(SHOWER_1_BUTTON) == LOW);
     lastShower2ButtonState = (digitalRead(SHOWER_2_BUTTON) == LOW);
@@ -94,18 +121,62 @@ void SmartShower::init()
     lastShower1Busy        = shower1.isBusyNow();
     lastShower2Busy        = shower2.isBusyNow();
 
+    restoreQueueOnBoot();
+
     Serial.println("--- SmartShower init done ---");
+}
+
+// ─────────────────────────── persistence ───────────────────────────
+
+void SmartShower::persistQueueUnlocked()
+{
+    // Очікує, що queueMutex уже взято.
+    String s;
+    s.reserve(queue.size() * 32);
+    for (uint8_t i = 0; i < queue.size(); i++)
+    {
+        if (i > 0) s += RECORD_SEP_CH;
+        s += queue[i].id;
+        s += FIELD_SEP_CH;
+        s += queue[i].name;
+    }
+    prefs.putString(NVS_QUEUE_KEY, s);
+}
+
+void SmartShower::restoreQueueOnBoot()
+{
+    String s = prefs.getString(NVS_QUEUE_KEY, "");
+    if (s.length() == 0)
+    {
+        Serial.println("[NVS] queue empty");
+        return;
+    }
+    int start = 0;
+    uint8_t count = 0;
+    while (start < (int)s.length())
+    {
+        int rec = s.indexOf(RECORD_SEP_CH, start);
+        if (rec < 0) rec = s.length();
+        int sep = s.indexOf(FIELD_SEP_CH, start);
+        if (sep < 0 || sep > rec) break;
+        String id   = s.substring(start, sep);
+        String name = s.substring(sep + 1, rec);
+        if (id.length() > 0 && !queue.isFull())
+        {
+            queue.push({id, name});
+            count++;
+        }
+        start = rec + 1;
+    }
+    Serial.printf("[NVS] restored %u queue entries\n", count);
 }
 
 // ─────────────────────────── working time ───────────────────────────
 
 bool SmartShower::computeWorkingTime()
 {
-    timeClient.update();
-    // Failsafe: поки NTP не синхронізувався, вважаємо що зараз робочий час —
-    // інакше getHours() == 0 і система постійно «нічна», блокуючи функціонал.
-    if (!timeClient.isTimeSet()) return true;
-    uint8_t hour = timeClient.getHours();
+    if (!timeutil::isSet()) return true; // failsafe доки NTP не синхронізувався
+    uint8_t hour = timeutil::hour();
     auto inRange = [hour](uint8_t start, uint8_t finish) {
         return (start <= finish) ? (hour >= start && hour <= finish)
                                  : (hour >= start || hour <= finish);
@@ -118,16 +189,12 @@ bool SmartShower::computeWorkingTime()
 void SmartShower::refreshWorkingTime()
 {
     ulong now = millis();
-    if (now - workingTimeUpdatedAt < WORKING_TIME_TTL_MS && workingTimeUpdatedAt != 0) return;
+    if (workingTimeUpdatedAt != 0 && now - workingTimeUpdatedAt < WORKING_TIME_TTL_MS) return;
     workingTimeCached = computeWorkingTime();
     workingTimeUpdatedAt = now;
 }
 
-bool SmartShower::isWorkingTime()
-{
-    // Боту OK повертати кешоване значення — затримка до 1с не критична.
-    return workingTimeCached;
-}
+bool SmartShower::isWorkingTime() { return workingTimeCached; }
 
 // ─────────────────────────── temp buttons ───────────────────────────
 
@@ -139,11 +206,6 @@ void SmartShower::handleTempButton(uint8_t s, uint8_t c, int pin, Shower &shower
 
     if (pressed != st.raw)
     {
-        // ДІАГНОСТИКА: лог сирого фронту, незалежно від дебаунсу
-        Serial.printf("[DBG] pin=%d (S%u T%u): %s -> %s\n",
-                      pin, s + 1, c + 1,
-                      st.raw ? "LOW" : "HIGH",
-                      pressed ? "LOW" : "HIGH");
         st.raw = pressed;
         st.changeAt = now;
         return;
@@ -175,19 +237,39 @@ void SmartShower::updateTemperatureButtons()
 {
     for (uint8_t c = 0; c < 4; c++)
     {
-        handleTempButton(0, c, TEMP_PINS[0][c], shower1);
-        handleTempButton(1, c, TEMP_PINS[1][c], shower2);
+        if (!isBadTempPin(TEMP_PINS[0][c]))
+            handleTempButton(0, c, TEMP_PINS[0][c], shower1);
+        if (!isBadTempPin(TEMP_PINS[1][c]))
+            handleTempButton(1, c, TEMP_PINS[1][c], shower2);
     }
 }
 
 // ─────────────────────────── queue API ───────────────────────────
 
-bool SmartShower::addingToQueue(const String &id, const String &name)
+JoinResult SmartShower::tryJoin(const String &id, const String &name)
 {
-    if (!isWorkingTime()) return false;
+    if (!isWorkingTime()) return {JoinResult::OFF_HOURS, 0};
     QueueLock lock(queueMutex);
-    if (queue.isFull()) return false;
+    for (uint8_t i = 0; i < queue.size(); i++)
+        if (queue[i].id == id) return {JoinResult::ALREADY_IN, i + 1};
+    if (queue.isFull()) return {JoinResult::FULL, 0};
     queue.push({id, name});
+    persistQueueUnlocked();
+    return {JoinResult::ADDED, (int)queue.size()};
+}
+
+bool SmartShower::leaveQueue(const String &id, bool &wasFirstOut)
+{
+    QueueLock lock(queueMutex);
+    int8_t idx = -1;
+    for (uint8_t i = 0; i < queue.size(); i++)
+        if (queue[i].id == id) { idx = i; break; }
+    if (idx == -1) { wasFirstOut = false; return false; }
+    wasFirstOut = (idx == 0);
+    queueReductionByIndexUnlocked(idx);
+    persistQueueUnlocked();
+    // Якщо хтось пішов, авто-вибуття слід переарганувати на нового першого (це робиться в run()).
+    if (firstNotifyId == id) { firstNotifyId = ""; firstNotifyAt = 0; }
     return true;
 }
 
@@ -200,15 +282,6 @@ void SmartShower::queueReductionByIndexUnlocked(int8_t index)
     for (int i = 0; i < size; i++) if (i != index) queue.push(temp[i]);
 }
 
-void SmartShower::queueReduction(const String &id)
-{
-    QueueLock lock(queueMutex);
-    int8_t idx = -1;
-    for (uint8_t i = 0; i < queue.size(); i++)
-        if (queue[i].id == id) { idx = i; break; }
-    queueReductionByIndexUnlocked(idx);
-}
-
 int8_t SmartShower::isInQueue(const String &id)
 {
     QueueLock lock(queueMutex);
@@ -217,11 +290,13 @@ int8_t SmartShower::isInQueue(const String &id)
     return -1;
 }
 
-QueueEntry SmartShower::getQueueAt(uint8_t index)
+uint8_t SmartShower::snapshotQueue(QueueEntry *out, uint8_t maxOut)
 {
     QueueLock lock(queueMutex);
-    if (index >= queue.size()) return {};
-    return queue[index];
+    uint8_t count = queue.size();
+    if (count > maxOut) count = maxOut;
+    for (uint8_t i = 0; i < count; i++) out[i] = queue[i];
+    return count;
 }
 
 QueueHead SmartShower::getHead()
@@ -242,11 +317,58 @@ void SmartShower::clearQueue()
 {
     QueueLock lock(queueMutex);
     while (!queue.isEmpty()) queue.shift();
+    persistQueueUnlocked();
+    firstNotifyId = "";
+    firstNotifyAt = 0;
 }
 
 void SmartShower::clearQueueIfNonWorkingTime()
 {
     if (!isWorkingTime()) clearQueue();
+}
+
+void SmartShower::armFirstNotify(const QueueHead &head)
+{
+    if (head.isEmpty || head.id == "0")
+    {
+        firstNotifyId = "";
+        firstNotifyAt = 0;
+        return;
+    }
+    firstNotifyId = head.id;
+    firstNotifyAt = millis();
+}
+
+void SmartShower::runAutoRemoveTick()
+{
+    if (firstNotifyId.length() == 0) return;
+    // Якщо першого вже немає (вийшов сам або зайшов у душ) — скидаємо.
+    bool stillFirst = false;
+    {
+        QueueLock lock(queueMutex);
+        stillFirst = !queue.isEmpty() && queue.first().id == firstNotifyId;
+    }
+    if (!stillFirst)
+    {
+        firstNotifyId = "";
+        firstNotifyAt = 0;
+        return;
+    }
+    if (millis() - firstNotifyAt < AUTO_REMOVE_MS) return;
+    Serial.printf("[Queue] auto-removing %s after %lus timeout\n",
+                  firstNotifyId.c_str(), AUTO_REMOVE_MS / 1000);
+    {
+        QueueLock lock(queueMutex);
+        // Видаляємо саме індекс 0 (ми вже знаємо що там потрібний id).
+        if (!queue.isEmpty() && queue.first().id == firstNotifyId)
+        {
+            queueReductionByIndexUnlocked(0);
+            persistQueueUnlocked();
+        }
+    }
+    firstNotifyId = "";
+    firstNotifyAt = 0;
+    pendingNotifyNext = true;
 }
 
 // ─────────────────────────── physical buttons ───────────────────────────
@@ -265,6 +387,7 @@ void SmartShower::pressQueueButton()
         if (!queue.isFull())
         {
             queue.push({"0", ""});
+            persistQueueUnlocked();
             added = true;
         }
     }
@@ -290,6 +413,7 @@ void SmartShower::handleShowerButton(Shower &shower, bool &lastState, int button
         {
             bool tookFromQueue = false;
             String takenId;
+            QueueHead newHead = {"", "", true};
             {
                 QueueLock lock(queueMutex);
                 if (!queue.isEmpty())
@@ -297,13 +421,22 @@ void SmartShower::handleShowerButton(Shower &shower, bool &lastState, int button
                     QueueEntry entry = queue.shift();
                     takenId = entry.id;
                     tookFromQueue = true;
+                    persistQueueUnlocked();
+                    if (!queue.isEmpty())
+                    {
+                        const QueueEntry &h = queue.first();
+                        newHead = { h.id, h.displayName(), false };
+                    }
                 }
             }
             if (tookFromQueue)
             {
                 shower.setWhoNow(takenId);
                 buzzerBeep(false);
-                pendingNotifyNext = true; // бот сповістить наступного
+                // Скидаємо авто-вибуття старого першого, армуємо новий.
+                if (firstNotifyId == takenId) { firstNotifyId = ""; firstNotifyAt = 0; }
+                armFirstNotify(newHead);
+                pendingNotifyNext = true;
             }
             else
             {
@@ -358,9 +491,6 @@ void SmartShower::buzzerBeep(bool isError)
 
 void SmartShower::requestBeep(bool isError)
 {
-    // Викликається з бот-задачі (core 0). Просто ставимо прапор; саме пищання
-    // зробить core 1 у processPendingBeep(), щоб всі tone()/Ticker виклики
-    // ішли з одного потоку.
     pendingBeepIsError = isError;
     pendingBeep = true;
 }
@@ -418,7 +548,7 @@ void SmartShower::showNonWorkingTimeAnimation()
 {
     if (millis() - lastAnimationUpdate < ANIM_FRAME_MS) return;
     lastAnimationUpdate = millis();
-    lastOledRender = ""; // анімація — кеш скидаємо
+    lastOledRender = "";
     oled.clear();
     oled.setScale(2);
     oled.setCursor(animationOffset, 1);
@@ -435,8 +565,7 @@ void SmartShower::run()
     refreshWorkingTime();
     processPendingBeep();
 
-    // Темп-кнопки і релізи душів обробляємо незалежно від часу доби —
-    // якщо хтось у душі вночі, він має право натиснути температуру.
+    // Темп-кнопки і релізи душів обробляємо незалежно від часу доби.
     updateTemperatureButtons();
     detectShowerRelease();
 
@@ -452,6 +581,7 @@ void SmartShower::run()
     handleShowerButton(shower1, lastShower1ButtonState, SHOWER_1_BUTTON);
     handleShowerButton(shower2, lastShower2ButtonState, SHOWER_2_BUTTON);
     handleQueueButton();
+    runAutoRemoveTick();
 
     if (errorMessage.length() > 0 && millis() - errorDisplayStart < ERROR_DISPLAY_MS)
     {
