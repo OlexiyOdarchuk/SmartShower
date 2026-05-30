@@ -18,6 +18,24 @@ String pickDisplayName(fb::UserRead user)
     return "User " + user.id().toString();
 }
 
+String htmlEscape(const String &in)
+{
+    String out;
+    out.reserve(in.length() + 8);
+    for (size_t i = 0; i < in.length(); i++)
+    {
+        char c = in.charAt(i);
+        switch (c)
+        {
+        case '&': out += "&amp;";  break;
+        case '<': out += "&lt;";   break;
+        case '>': out += "&gt;";   break;
+        default:  out += c;        break;
+        }
+    }
+    return out;
+}
+
 bool isCommand(const String &text, const char *cmd)
 {
     if (!text.startsWith(cmd)) return false;
@@ -104,22 +122,19 @@ fb::ReplyParam createReply(const int32_t messageID, const fb::ID chatID)
 
 void getInfoMessage(const int32_t messageID, const fb::ID chatID)
 {
-    String body;
-    body.reserve(200);
-    body  = "📊 Загальна інформація:\n\n";
-    body += "🚿 Душ 1:\n" + shower1.getWaterTemperature() + "\n\n";
-    body += "🚿 Душ 2:\n" + shower2.getWaterTemperature() + "\n\n";
-    body += "Черга: " + String(smartShower.queueLen());
-    send(makeReply(body, messageID, chatID));
+    send(makeReply(smartShower.infoReport(), messageID, chatID));
 }
 
 void notifyNextInQueue(const fb::ID chatID)
 {
     QueueHead head = smartShower.getHead();
     if (head.isEmpty || head.id == "0") return;
+    // HTML-режим + екранування: ім'я користувача може містити _ * [ ] тощо
+    // (валідні в Telegram username/first_name), що ламало б MarkdownV2-розмітку.
     fb::Message msg;
-    msg.mode = fb::Message::Mode::MarkdownV2;
-    msg.text = "🔔 Твоя черга наступна\\! [" + head.displayName + "](tg://user?id=" + head.id + ")";
+    msg.mode = fb::Message::Mode::HTML;
+    msg.text = "🔔 Твоя черга наступна! <a href=\"tg://user?id=" + head.id + "\">"
+             + htmlEscape(head.displayName) + "</a>";
     msg.chatID = chatID;
     send(msg);
 }

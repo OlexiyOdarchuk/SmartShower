@@ -196,6 +196,20 @@ void SmartShower::refreshWorkingTime()
 
 bool SmartShower::isWorkingTime() { return workingTimeCached; }
 
+String SmartShower::infoReport()
+{
+    // Зчитуємо температуру обох душів і довжину черги під одним блокуванням,
+    // щоб не зчитати String у момент перезапису з core 1 (temp-кнопки).
+    QueueLock lock(queueMutex);
+    String body;
+    body.reserve(220);
+    body  = "📊 Загальна інформація:\n\n";
+    body += "🚿 Душ 1:\n" + shower1.getWaterTemperature() + "\n\n";
+    body += "🚿 Душ 2:\n" + shower2.getWaterTemperature() + "\n\n";
+    body += "Черга: " + String(queue.size());
+    return body;
+}
+
 // ─────────────────────────── temp buttons ───────────────────────────
 
 void SmartShower::handleTempButton(uint8_t s, uint8_t c, int pin, Shower &shower)
@@ -222,7 +236,11 @@ void SmartShower::handleTempButton(uint8_t s, uint8_t c, int pin, Shower &shower
     Serial.printf("[Input] S%u T%u pressed\n", s + 1, c + 1);
     if (shower.getWhoNow().length() > 0)
     {
-        shower.setWaterTemperature(c + 1);
+        {
+            // waterTemperature читається з core 0 у infoReport() — серіалізуємо доступ.
+            QueueLock lock(queueMutex);
+            shower.setWaterTemperature(c + 1);
+        }
         buzzerBeep(false);
         showErrorOnOled("S" + String(s + 1) + " T=" + String(c + 1));
     }
@@ -268,8 +286,8 @@ bool SmartShower::leaveQueue(const String &id, bool &wasFirstOut)
     wasFirstOut = (idx == 0);
     queueReductionByIndexUnlocked(idx);
     persistQueueUnlocked();
-    // Якщо хтось пішов, авто-вибуття слід переарганувати на нового першого (це робиться в run()).
-    if (firstNotifyId == id) { firstNotifyId = ""; firstNotifyAt = 0; }
+    // Авто-вибуття (firstNotifyId/At) живе виключно на core 1 (runAutoRemoveTick):
+    // наступний тік сам помітить зміну голови черги і переарганує таймер.
     return true;
 }
 
@@ -318,8 +336,7 @@ void SmartShower::clearQueue()
     QueueLock lock(queueMutex);
     while (!queue.isEmpty()) queue.shift();
     persistQueueUnlocked();
-    firstNotifyId = "";
-    firstNotifyAt = 0;
+    // firstNotifyId/At скине runAutoRemoveTick на core 1, побачивши порожню голову.
 }
 
 void SmartShower::clearQueueIfNonWorkingTime()
@@ -327,39 +344,50 @@ void SmartShower::clearQueueIfNonWorkingTime()
     if (!isWorkingTime()) clearQueue();
 }
 
-void SmartShower::armFirstNotify(const QueueHead &head)
+void SmartShower::runAutoRemoveTick()
 {
+    // Викликається ВИКЛЮЧНО з core 1 (loop), тому firstNotifyId/firstNotifyAt
+    // тут — приватний стан одного ядра і не потребує блокування (блокуємо лише
+    // саму чергу). Відлік таймауту йде лише доки є вільна кабінка: якщо обидва
+    // душі зайняті, людина об'єктивно не може зайти, і виганяти її не можна.
+    QueueHead head = getHead(); // бере queueMutex усередині
+    bool anyShowerFree = !shower1.isBusyNow() || !shower2.isBusyNow();
+    ulong now = millis();
+
+    // Немає реального «наступного» (порожньо або анонімна кнопка) — скидаємо.
     if (head.isEmpty || head.id == "0")
     {
         firstNotifyId = "";
         firstNotifyAt = 0;
         return;
     }
-    firstNotifyId = head.id;
-    firstNotifyAt = millis();
-}
 
-void SmartShower::runAutoRemoveTick()
-{
-    if (firstNotifyId.length() == 0) return;
-    // Якщо першого вже немає (вийшов сам або зайшов у душ) — скидаємо.
-    bool stillFirst = false;
+    // Новий перший у черзі — починаємо стежити за ним.
+    if (head.id != firstNotifyId)
     {
-        QueueLock lock(queueMutex);
-        stillFirst = !queue.isEmpty() && queue.first().id == firstNotifyId;
-    }
-    if (!stillFirst)
-    {
-        firstNotifyId = "";
-        firstNotifyAt = 0;
+        firstNotifyId = head.id;
+        firstNotifyAt = anyShowerFree ? now : 0;
         return;
     }
-    if (millis() - firstNotifyAt < AUTO_REMOVE_MS) return;
+
+    // Той самий перший: керуємо відліком залежно від наявності вільної кабінки.
+    if (!anyShowerFree)
+    {
+        firstNotifyAt = 0; // пауза, поки нікуди заходити
+        return;
+    }
+    if (firstNotifyAt == 0)
+    {
+        firstNotifyAt = now; // душ щойно звільнився — даємо повний таймаут
+        return;
+    }
+    if (now - firstNotifyAt < AUTO_REMOVE_MS) return;
+
+    // Таймаут вийшов: вільний душ був, але людина не зайшла — виганяємо.
     Serial.printf("[Queue] auto-removing %s after %lus timeout\n",
                   firstNotifyId.c_str(), AUTO_REMOVE_MS / 1000);
     {
         QueueLock lock(queueMutex);
-        // Видаляємо саме індекс 0 (ми вже знаємо що там потрібний id).
         if (!queue.isEmpty() && queue.first().id == firstNotifyId)
         {
             queueReductionByIndexUnlocked(0);
@@ -368,7 +396,7 @@ void SmartShower::runAutoRemoveTick()
     }
     firstNotifyId = "";
     firstNotifyAt = 0;
-    pendingNotifyNext = true;
+    pendingNotifyNext = true; // сповістити нового першого
 }
 
 // ─────────────────────────── physical buttons ───────────────────────────
@@ -412,30 +440,24 @@ void SmartShower::handleShowerButton(Shower &shower, bool &lastState, int button
         else
         {
             bool tookFromQueue = false;
-            String takenId;
-            QueueHead newHead = {"", "", true};
+            String takenName;
             {
                 QueueLock lock(queueMutex);
                 if (!queue.isEmpty())
                 {
                     QueueEntry entry = queue.shift();
-                    takenId = entry.id;
+                    // Зберігаємо читабельне ім'я (для /get_info), а не сирий id.
+                    takenName = (entry.id == "0") ? String("0") : entry.displayName();
                     tookFromQueue = true;
                     persistQueueUnlocked();
-                    if (!queue.isEmpty())
-                    {
-                        const QueueEntry &h = queue.first();
-                        newHead = { h.id, h.displayName(), false };
-                    }
                 }
             }
             if (tookFromQueue)
             {
-                shower.setWhoNow(takenId);
+                shower.setWhoNow(takenName);
                 buzzerBeep(false);
-                // Скидаємо авто-вибуття старого першого, армуємо новий.
-                if (firstNotifyId == takenId) { firstNotifyId = ""; firstNotifyAt = 0; }
-                armFirstNotify(newHead);
+                // Голова черги змінилась — сповістити нового першого. Авто-вибуття
+                // переарганує runAutoRemoveTick наступним тіком (core 1).
                 pendingNotifyNext = true;
             }
             else

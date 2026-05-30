@@ -64,6 +64,7 @@ public:
     uint8_t    queueLen();
     void       clearQueue();
     bool       isWorkingTime();
+    String     infoReport();
 
     // Прапор для бот-задачі: «настав час сповістити наступного».
     volatile bool pendingNotifyNext = false;
@@ -135,5 +136,4 @@ private:
     void persistQueueUnlocked();
     void restoreQueueOnBoot();
     void runAutoRemoveTick();
-    void armFirstNotify(const QueueHead &head);
 };
