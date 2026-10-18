@@ -3,15 +3,26 @@ use crate::queue::Member;
 /// Хто зараз у кабінці.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Occupant {
-    /// Зайняли кнопкою без черги, або першим у черзі був анонім.
-    Button,
+    Ticket(u16),
     User(String),
+    /// Зайшли поза чергою.
+    WalkIn,
+}
+
+impl Occupant {
+    pub fn display_name(&self) -> String {
+        match self {
+            Occupant::Ticket(n) => Member::Ticket(*n).display_name(),
+            Occupant::User(name) => name.clone(),
+            Occupant::WalkIn => "Без черги".into(),
+        }
+    }
 }
 
 impl From<&Member> for Occupant {
     fn from(m: &Member) -> Self {
         match m {
-            Member::Button => Occupant::Button,
+            Member::Ticket(n) => Occupant::Ticket(*n),
             user => Occupant::User(user.display_name()),
         }
     }
@@ -30,11 +41,7 @@ pub fn water_info(water: Option<&WaterTemperature>) -> String {
     let Some(w) = water else {
         return "Температура не встановлена".into();
     };
-    let user = match &w.occupant {
-        Occupant::Button => "Зареєстровано кнопкою".into(),
-        Occupant::User(name) => name.clone(),
-    };
-    format!("Температура: {}\nЧас: {}\nКористувач: {}", w.level, w.time, user)
+    format!("Температура: {}\nЧас: {}\nКористувач: {}", w.level, w.time, w.occupant.display_name())
 }
 
 #[cfg(test)]
@@ -46,13 +53,14 @@ mod tests {
         assert_eq!(water_info(None), "Температура не встановлена");
         let w = WaterTemperature { level: 2, occupant: Occupant::User("@vova".into()), time: "14:23:11".into() };
         assert_eq!(water_info(Some(&w)), "Температура: 2\nЧас: 14:23:11\nКористувач: @vova");
-        let w = WaterTemperature { occupant: Occupant::Button, ..w };
-        assert!(water_info(Some(&w)).ends_with("Користувач: Зареєстровано кнопкою"));
+        let w = WaterTemperature { occupant: Occupant::Ticket(7), ..w };
+        assert!(water_info(Some(&w)).ends_with("Користувач: Талон №7"));
     }
 
     #[test]
     fn occupant_from_member() {
-        assert_eq!(Occupant::from(&Member::Button), Occupant::Button);
+        assert_eq!(Occupant::from(&Member::Ticket(3)), Occupant::Ticket(3));
         assert_eq!(Occupant::from(&Member::user(3, "")), Occupant::User("3".into()));
+        assert_eq!(Occupant::WalkIn.display_name(), "Без черги");
     }
 }

@@ -2,55 +2,105 @@
 
 use std::time::Duration;
 
-use anyhow::{bail, Context};
 use esp_idf_svc::http::client::{Configuration, EspHttpConnection};
 use esp_idf_svc::http::Method;
 use esp_idf_svc::sys;
-use shower_core::telegram::{parse_updates, SendMessage, Update};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use shower_core::telegram::{
+    parse_response, AnswerCallbackQuery, ApiError, DeleteMessage, EditMessageText, Message, PinChatMessage,
+    SendMessage, Update,
+};
 
-/// Long-poll тримаємо коротким: поки запит висить, бот не може надіслати
-/// «твоя черга наступна», а друге TLS-з'єднання для C3 задороге по пам'яті.
-const POLL_TIMEOUT_S: u32 = 5;
-const HTTP_TIMEOUT: Duration = Duration::from_secs(POLL_TIMEOUT_S as u64 + 10);
 const MAX_RESPONSE: usize = 32 * 1024;
 const POLL_LIMIT: u32 = 20;
 
+#[derive(Debug)]
+pub enum TgError {
+    /// Telegram відповів `ok: false`.
+    Api(ApiError),
+    /// Мережа, TLS, HTTP 5xx.
+    Transport(anyhow::Error),
+}
+
+impl std::fmt::Display for TgError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TgError::Api(e) => write!(f, "API: {e}"),
+            TgError::Transport(e) => write!(f, "{e:#}"),
+        }
+    }
+}
+
+impl From<serde_json::Error> for TgError {
+    fn from(e: serde_json::Error) -> Self {
+        TgError::Transport(e.into())
+    }
+}
+
+pub type TgResult<T> = Result<T, TgError>;
+
+/// Одне keep-alive з'єднання; кожен потік бота тримає свій клієнт.
 pub struct Telegram {
     token: &'static str,
+    timeout: Duration,
     conn: Option<EspHttpConnection>,
 }
 
 impl Telegram {
-    pub fn new(token: &'static str) -> Self {
-        Self { token, conn: None }
+    pub fn new(token: &'static str, timeout: Duration) -> Self {
+        Self { token, timeout, conn: None }
     }
 
-    pub fn get_updates(&mut self, offset: i64) -> anyhow::Result<Vec<Update>> {
+    pub fn get_updates(&mut self, offset: i64, poll_timeout_s: u32) -> TgResult<Vec<Update>> {
         let body = format!(
-            r#"{{"offset":{offset},"timeout":{POLL_TIMEOUT_S},"limit":{POLL_LIMIT},"allowed_updates":["message"]}}"#
+            r#"{{"offset":{offset},"timeout":{poll_timeout_s},"limit":{POLL_LIMIT},"allowed_updates":["message","callback_query"]}}"#
         );
-        let resp = self.call("getUpdates", &body)?;
-        parse_updates(&resp).map_err(anyhow::Error::msg)
+        self.call_raw("getUpdates", &body)
     }
 
-    pub fn send(&mut self, msg: &SendMessage) -> anyhow::Result<()> {
-        self.call("sendMessage", &msg.to_json()).map(drop)
+    pub fn send(&mut self, msg: &SendMessage) -> TgResult<Message> {
+        self.call("sendMessage", msg)
     }
 
-    /// Після будь-якої помилки з'єднання перестворюється з нуля.
-    fn call(&mut self, method: &str, body: &str) -> anyhow::Result<Vec<u8>> {
-        let result = self.call_inner(method, body);
-        if result.is_err() {
-            self.conn = None;
-        }
-        result
+    pub fn edit(&mut self, msg: &EditMessageText) -> TgResult<()> {
+        self.call::<serde_json::Value>("editMessageText", msg).map(drop)
     }
 
-    fn call_inner(&mut self, method: &str, body: &str) -> anyhow::Result<Vec<u8>> {
+    pub fn answer(&mut self, req: &AnswerCallbackQuery) -> TgResult<()> {
+        self.call::<bool>("answerCallbackQuery", req).map(drop)
+    }
+
+    pub fn pin(&mut self, req: &PinChatMessage) -> TgResult<()> {
+        self.call::<bool>("pinChatMessage", req).map(drop)
+    }
+
+    pub fn delete(&mut self, req: &DeleteMessage) -> TgResult<()> {
+        self.call::<bool>("deleteMessage", req).map(drop)
+    }
+
+    fn call<R: DeserializeOwned>(&mut self, method: &str, req: &impl Serialize) -> TgResult<R> {
+        let body = serde_json::to_string(req)?;
+        self.call_raw(method, &body)
+    }
+
+    fn call_raw<R: DeserializeOwned>(&mut self, method: &str, body: &str) -> TgResult<R> {
+        let resp = match self.request(method, body) {
+            Ok(r) => r,
+            Err(e) => {
+                // Після збою з'єднання перестворюється з нуля.
+                self.conn = None;
+                return Err(TgError::Transport(e.context(method.to_owned())));
+            }
+        };
+        parse_response(&resp).map_err(TgError::Api)
+    }
+
+    fn request(&mut self, method: &str, body: &str) -> anyhow::Result<Vec<u8>> {
         let conn = match &mut self.conn {
             Some(c) => c,
             slot @ None => slot.insert(EspHttpConnection::new(&Configuration {
-                timeout: Some(HTTP_TIMEOUT),
+                timeout: Some(self.timeout),
                 crt_bundle_attach: Some(sys::esp_crt_bundle_attach),
                 keep_alive_enable: true,
                 ..Default::default()
@@ -72,17 +122,11 @@ impl Telegram {
             if n == 0 {
                 break;
             }
-            if resp.len() + n > MAX_RESPONSE {
-                bail!("{method}: відповідь більша за {MAX_RESPONSE} байт");
-            }
+            anyhow::ensure!(resp.len() + n <= MAX_RESPONSE, "відповідь більша за {MAX_RESPONSE} байт");
             resp.extend_from_slice(&buf[..n]);
         }
-
-        // getUpdates з ok=false пояснює помилку в тілі, тож 4xx віддаємо парсеру.
-        if status >= 500 || (method != "getUpdates" && status != 200) {
-            let text = String::from_utf8_lossy(&resp);
-            return Err(anyhow::anyhow!("HTTP {status}: {text}")).context(method.to_owned());
-        }
+        // Помилки API (4xx) приходять із JSON-описом, їх розбирає parse_response.
+        anyhow::ensure!(status < 500, "HTTP {status}");
         Ok(resp)
     }
 }

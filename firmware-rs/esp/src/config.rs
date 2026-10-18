@@ -1,8 +1,11 @@
 use shower_core::schedule::{HourRange, Schedule};
 
-/// Неробочий час, години включно: 00:00–05:59 і 11:00–13:59.
+/// Години включно з обох боків.
+/// Ніч 00:00–05:59: черга закрита й очищається на початку ночі.
+/// Перерва 11:00–13:59: черга заморожена, ставати в неї можна.
 pub const SCHEDULE: Schedule = Schedule {
-    off: &[HourRange::new(0, 5), HourRange::new(11, 13)],
+    night: HourRange::new(0, 5),
+    breaks: &[HourRange::new(11, 13)],
 };
 
 /// Європа/Київ з автоматичним DST: EET = UTC+2 (зима), EEST = UTC+3 (літо).
