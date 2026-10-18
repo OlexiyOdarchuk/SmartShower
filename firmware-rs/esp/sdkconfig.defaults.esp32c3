@@ -1,0 +1,3 @@
+# Super Mini не має USB-UART: консоль через вбудований USB-Serial-JTAG,
+# що також звільняє GPIO20/21.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

@@ -2,3 +2,6 @@
 .vscode/
 secrets.hpp
 test.cpp
+firmware-rs/*/target/
+firmware-rs/esp/.embuild/
+firmware-rs/esp/src/secrets.rs
