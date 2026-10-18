@@ -1,0 +1,18 @@
+[build]
+# ESP32-WROOM за замовчуванням; для ESP32-C3 — `cargo c3 ...` (див. аліаси нижче).
+target = "xtensa-esp32-espidf"
+
+[alias]
+c3 = ["--config", "build.target='riscv32imc-esp-espidf'"]
+
+[target.'cfg(target_os = "espidf")']
+linker = "ldproxy"
+runner = "espflash flash --monitor"
+rustflags = ["--cfg", "espidf_time64"]
+
+[unstable]
+build-std = ["std", "panic_abort"]
+
+[env]
+ESP_IDF_VERSION = "v5.5.6"
+ESP_IDF_SDKCONFIG_DEFAULTS = "sdkconfig.defaults"

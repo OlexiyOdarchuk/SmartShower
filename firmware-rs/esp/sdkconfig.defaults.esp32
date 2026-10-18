@@ -1,0 +1,2 @@
+# Цикл заліза на ядрі 1 (APP_CPU), як loop() в Arduino; бот і Wi-Fi — на ядрі 0.
+CONFIG_ESP_MAIN_TASK_AFFINITY_CPU1=y
